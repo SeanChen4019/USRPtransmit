@@ -66,7 +66,7 @@ radio_rx = comm.SDRuReceiver( ...
     'DecimationFactor', 512, ...
     'SamplesPerFrame', BUS_RX_SAMPLES);
 radio_rx.ClockSource = 'External';
-radio_rx.ChannelMapping = 1;
+radio_rx.ChannelMapping = 2;
 radio_rx.CenterFrequency = defs.anchor_freq;
 radio_rx.Gain = 12;
 
@@ -81,7 +81,6 @@ rx_ui.post_period = 10;
 rx_ui.ctrl_period = 20;
 rx_ui.timeout = 0.03;
 
-rx_pwr_count = 0;
 
 %% =========== Main Loop ===========
 for idx = 1:100000
@@ -103,11 +102,6 @@ for idx = 1:100000
             end
 
             % Try to decode BEACON/START control frame
-            rx_pwr_count = rx_pwr_count + 1;
-            if mod(rx_pwr_count, 20) == 0
-                fprintf('[RX-PWR] #%d | rms=%.6f | max=%.6f | freq=%.3f GHz\n', ...
-                    rx_pwr_count, rms(rx_sig), max(abs(rx_sig)), radio_rx.CenterFrequency/1e9);
-            end
             [ctrl_valid, ctrl_data] = decode_control_frame(rx_sig);
 
             if ctrl_valid && (ctrl_data.frame_type == 40 || ctrl_data.frame_type == 41)
@@ -358,11 +352,6 @@ for i = 1:sps
     end
 end
 
-	max_peak = max(index_val);
-	persistent sdc; if isempty(sdc), sdc = 0; end; sdc = sdc + 1;
-	if mod(sdc, 20) == 0
-	    fprintf('[RX-SYNC] #%d | max_peak=%.1f thr=%d | p=[%.0f %.0f %.0f %.0f]\n', sdc, max_peak, Threshold, index_val(1), index_val(2), index_val(3), index_val(4));
-	end
 	if all(index_val == 0), return; end
 
 [~, op_index] = max(index_val);

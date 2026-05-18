@@ -108,7 +108,7 @@ radio_rx = comm.SDRuReceiver( ...
     'DecimationFactor', 512, ...
     'SamplesPerFrame', FB_RX_SAMPLES);
 radio_rx.ClockSource = 'External';
-radio_rx.ChannelMapping = 1;
+radio_rx.ChannelMapping = 2;
 radio_rx.CenterFrequency = defs.feedback_freq;
 radio_rx.Gain = 28;
 
@@ -130,7 +130,6 @@ slot_ptr = 1;
 tx_duration = 0;
 
 fprintf('[TX] Entering WAIT_READY state, sending BEACON on %.2f GHz\n', defs.anchor_freq/1e9);
-fb_dbg_count = 0;
 
 %% =========== Main Loop ===========
 for idx = 1:100000
@@ -145,10 +144,6 @@ for idx = 1:100000
             if mod(beacon_count, BEACON_PERIOD) == 0
                 tx_sig = build_control_frame(session_id, 40, meta_info, fec_info, CONTROL_SAMPLES);  % 40=BEACON
                 radio_tx.CenterFrequency = defs.anchor_freq;
-                if mod(beacon_count, 25) == 0
-                    fprintf('[TX-BEACON] #%d | rms=%.6f | max=%.6f | freq=%.3f GHz\n', ...
-                        beacon_count, rms(tx_sig), max(abs(tx_sig)), radio_tx.CenterFrequency/1e9);
-                end
             else
                 tx_sig = zeros(CONTROL_SAMPLES, 1);
             end
@@ -217,11 +212,6 @@ for idx = 1:100000
     end
 
     % ---- Decode Feedback ----
-    fb_dbg_count = fb_dbg_count + 1;
-    if mod(fb_dbg_count, 50) == 0
-        fprintf('[TX-FB-DEBUG] #%d | fb_rms=%.6f | fb_max=%.6f\n', ...
-            fb_dbg_count, rms(fb_sig), max(abs(fb_sig)));
-    end
     [fb_valid, fb_data] = feedback_frame_decode_v2(fb_sig);
 
     if fb_valid
@@ -309,7 +299,6 @@ ctrl_bits = [ ...
 coded = [crcgenerator(ctrl_bits); defs.ctrl_frame_end];
 scr_bits = scramble_bits_ctrl(coded, defs.scr_seq);
 enc_bits = ldpcEncode(scr_bits, cfgLDPCEnc);
-    fprintf('[CTRL-DBG] enc_bits: %dx%d | sum=%.0f\n', size(enc_bits,1), size(enc_bits,2), sum(enc_bits));
 inter_matrix = reshape(enc_bits, 36, 18).';
 inter_bits = inter_matrix(:);
 
@@ -320,10 +309,8 @@ for ii = 1:length(inter_polar)
 end
 
 mod_sig = bpskmod(0.5*(spread+1));
-    fprintf('[CTRL-DBG] mod_sig: %dx%d | rms=%.6f\n', size(mod_sig,1), size(mod_sig,2), rms(mod_sig));
 tx_in = [defs.head_data; mod_sig; zeros(sps*10,1)];
 one_wave = txfilter(tx_in);
-    fprintf('[CTRL-DBG] one_wave: %dx%d | rms=%.6f | max=%.6f\n', size(one_wave,1), size(one_wave,2), rms(one_wave), max(abs(one_wave)));
 
 % Pad/trim to slot length
 sig = zeros(slot_len, 1);
