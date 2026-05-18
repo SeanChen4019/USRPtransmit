@@ -68,7 +68,7 @@ radio_rx = comm.SDRuReceiver( ...
 radio_rx.ClockSource = 'External';
 radio_rx.ChannelMapping = 2;
 radio_rx.CenterFrequency = defs.anchor_freq;
-radio_rx.Gain = 12;
+radio_rx.Gain = 30;  % OTA: increased for over-the-air
 
 cleanupObj = onCleanup(@() safe_release(radio_tx, radio_rx));
 disp('[RX-HW] USRP ready.');
@@ -83,6 +83,7 @@ rx_ui.timeout = 0.03;
 
 
 %% =========== Main Loop ===========
+rx_diag_count = 0;
 for idx = 1:100000
     tx_sig = zeros(FB_TX_SAMPLES, 1);
 
@@ -102,6 +103,11 @@ for idx = 1:100000
             end
 
             % Try to decode BEACON/START control frame
+            rx_diag_count = rx_diag_count + 1;
+            if mod(rx_diag_count, 30) == 0
+                fprintf('[RX-DIAG] #%d | rms=%.4f | pk=%.4f\n', ...
+                    rx_diag_count, rms(rx_sig), max(abs(rx_sig)));
+            end
             [ctrl_valid, ctrl_data] = decode_control_frame(rx_sig);
 
             if ctrl_valid && (ctrl_data.frame_type == 40 || ctrl_data.frame_type == 41)

@@ -16,8 +16,8 @@ file_name = 'p2.jpg';
 text_content = 'Hello, One-Shot FH!';
 
 Anti_Jamming_Mode = 0;    % 0=QPSK, 1=BPSK+spreading
-Power_gain = 15;
-Power = 0.7;
+Power_gain = 30;   % OTA: increased for over-the-air
+Power = 1.0;
 
 fec_k = defs.fec_k_default;  % 24
 fec_r = defs.fec_r_default;  % 8
