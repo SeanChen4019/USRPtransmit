@@ -173,8 +173,8 @@ Rec_sig = rxfilter(rx_sig(:));
 data_frame_len = 648 / log2(2) * sf;  % = 9720
 
 PN_head = flip(head_fb);
-data_sys = zeros(length(Rec_sig)/sps, sps);
-buffer_h = zeros(length(Rec_sig)/sps, sps);
+data_sys = [];
+buffer_h = [];
 index_val = zeros(1, sps);
 index_loc = cell(1, sps);
 loc_num = zeros(1, sps);
@@ -182,12 +182,11 @@ syn_flag = false;
 
 for i = 1:sps
     data_sys_col = Rec_sig(i:sps:end);
-    n = length(data_sys_col);
-    data_sys(1:n, i) = data_sys_col;
-    buffer_h(1:n, i) = abs(conv(PN_head, sign(data_sys_col)));
-    if max(buffer_h(1:n, i)) >= Threshold
+    data_sys(:, i) = data_sys_col;
+    buffer_h(:, i) = abs(conv(PN_head, sign(data_sys_col)));
+    if max(buffer_h(:, i)) >= Threshold
         syn_flag = true;
-        above = find(buffer_h(1:n, i) >= Threshold);
+        above = find(buffer_h(:, i) >= Threshold);
         index_loc{i} = above;
         loc_num(i) = length(above);
         index_val(i) = mean(buffer_h(above, i));
@@ -221,7 +220,7 @@ for j = 1:length(idx_start_temp)
         data_desp(ii) = sum(demod_sig((ii-1)*sf+1 : ii*sf) .* pn_fb);
     end
 
-    % Deinterleave (18x36 â†’ 36x18)
+    % Deinterleave (18x36 â†?36x18)
     deinter_matrix = reshape(data_desp, 18, 36).';
     deinter_bits = deinter_matrix(:);
 
