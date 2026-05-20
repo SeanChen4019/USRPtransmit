@@ -50,8 +50,8 @@ Frame_end = zeros(358, 1);  % padding to 486 bits before LDPC
 %% Frequencies & gains
 anchor_freq   = 2.5e9;   % forward: TX -> RX
 feedback_freq = 1.45e9;  % feedback: RX -> TX
-tx_gain = 25;
-rx_gain = 25;
+tx_gain = 30;
+rx_gain = 30;
 
 %% Build beacon waveform
 fprintf('[TX] Building BEACON waveform...\n');
@@ -118,13 +118,18 @@ fprintf('[TX-HW] USRP ready. TX on %.2f GHz, RX on %.2f GHz, ChMapping=1\n', ...
     anchor_freq/1e9, feedback_freq/1e9);
 
 %% Handshake loop
+% Strategy: send beacon periodically, listen continuously.
+% RX needs time to receive beacon, decode, and send ACK - so
+% we spend most iterations just listening.
 state = 'SENDING_BEACON';
-ack_count = 0;
-max_iter = 500;
+max_iter = 2000;
+BEACON_PERIOD = 8;  % send beacon every N iterations
 
 for idx = 1:max_iter
-    % ---- Transmit beacon ----
-    radio_tx(beacon_wave);
+    % ---- Transmit beacon periodically ----
+    if mod(idx, BEACON_PERIOD) == 0
+        radio_tx(beacon_wave);
+    end
 
     % ---- Listen for ACK on feedback channel ----
     try
@@ -140,7 +145,7 @@ for idx = 1:max_iter
         scr_seq, cfgLDPCDec, crcdetector, qpskdemod, sps, sf);
 
     if ack_valid && ack_data.frame_type == 101
-        fprintf('\n[TX] *** HANDSHAKE SUCCESS! ACK received. ***\n');
+        fprintf('\n[TX] *** HANDSHAKE SUCCESS! ACK received at iteration %d. ***\n', idx);
         fprintf('[TX] Frame type: %d, Session: %d\n', ack_data.frame_type, ack_data.session_id);
         state = 'DONE';
         break;
@@ -220,7 +225,7 @@ for j = 1:length(idx_start_temp)
         data_desp(ii) = sum(demod_sig((ii-1)*sf+1 : ii*sf) .* pn_fb);
     end
 
-    % Deinterleave (18x36 â†?36x18)
+    % Deinterleave (18x36 ï¿½?36x18)
     deinter_matrix = reshape(data_desp, 18, 36).';
     deinter_bits = deinter_matrix(:);
 

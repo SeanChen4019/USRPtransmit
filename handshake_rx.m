@@ -50,8 +50,8 @@ Frame_end = zeros(358, 1);  % padding to 486 bits before LDPC
 %% Frequencies & gains
 anchor_freq   = 2.5e9;   % forward: TX -> RX
 feedback_freq = 1.45e9;  % feedback: RX -> TX
-tx_gain_rx_side = 20;
-rx_gain_rx_side = 25;
+tx_gain_rx_side = 30;
+rx_gain_rx_side = 30;
 
 %% Pre-build ACK waveform (to send when beacon detected)
 fprintf('[RX] Building ACK waveform...\n');
@@ -113,6 +113,7 @@ fprintf('[RX-HW] USRP ready. RX on %.2f GHz, TX on %.2f GHz, ChMapping=1\n', ...
 
 %% Handshake loop
 state = 'WAITING_FOR_BEACON';
+ack_remaining = 0;
 data_frame_len = 648 / log2(2) * sf;  % = 9720
 Threshold = 250;
 maxnumiter = 10;
@@ -204,13 +205,21 @@ for idx = 1:1000
 
     % ---- Respond with ACK if beacon found ----
     if beacon_found && strcmp(state, 'WAITING_FOR_BEACON')
-        fprintf('[RX] Sending ACK on feedback channel (%.2f GHz)...\n', feedback_freq/1e9);
-        for rep = 1:3  % Send ACK 3 times for reliability
-            radio_tx(ack_wave);
+        fprintf('[RX] Beacon confirmed, entering ACK_SENDING state...\n');
+        state = 'ACK_SENDING';
+        ack_remaining = 6;
+    end
+
+    % ---- ACK sending state: send ACK across multiple iterations ----
+    if strcmp(state, 'ACK_SENDING')
+        radio_tx(ack_wave);
+        ack_remaining = ack_remaining - 1;
+        fprintf('[RX] ACK sent, remaining=%d\n', ack_remaining);
+        if ack_remaining <= 0
+            state = 'DONE';
+            fprintf('[RX] *** HANDSHAKE SUCCESS! All ACKs sent. ***\n');
+            break;
         end
-        state = 'ACK_SENT';
-        fprintf('[RX] *** HANDSHAKE SUCCESS! ACK sent. ***\n');
-        break;
     end
 
     % ---- Periodic status ----
@@ -220,7 +229,7 @@ for idx = 1:1000
     end
 end
 
-if ~strcmp(state, 'ACK_SENT')
+if ~strcmp(state, 'DONE')
     fprintf('\n[RX] Handshake timeout - no beacon received.\n');
 end
 
