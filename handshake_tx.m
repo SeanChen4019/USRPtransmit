@@ -174,7 +174,7 @@ data = struct();
 Threshold = 250;
 maxnumiter = 10;
 
-Rec_sig = rxfilter(rx_sig(:));
+Rec_sig = rxfilter(complex(rx_sig(:)));
 data_frame_len = 648 / log2(2) * sf;  % = 9720
 
 PN_head = flip(head_fb);

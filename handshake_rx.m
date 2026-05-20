@@ -131,7 +131,7 @@ for idx = 1:1000
 
     % ---- Try to decode beacon ----
     beacon_found = false;
-    Rec_sig = rxfilter(rx_sig(:));
+    Rec_sig = rxfilter(complex(rx_sig(:)));
 
     syn_flag = false;
     index_val = zeros(1, sps);
