@@ -57,7 +57,9 @@ rx_gain = 25;
 fprintf('[TX] Building BEACON waveform...\n');
 payload_beacon = [Frame_head; Usr_ID; Frame_type_beacon; Session_ID];
 enc_beacon = crcgenerator(payload_beacon);
-payload_frame_beacon = [enc_beacon; Frame_end];
+% LDPC requires exactly 486 input bits; pad to match
+pad_len_beacon = 486 - length(enc_beacon);
+payload_frame_beacon = [enc_beacon; zeros(pad_len_beacon, 1)];
 
 % Scramble
 scr_data = zeros(length(payload_frame_beacon), 1);
@@ -235,7 +237,8 @@ for j = 1:length(idx_start_temp)
     end
 
     % CRC check
-    [data_rec, err] = crcdetector(descr_data(1:end-358));
+    % Info=40bit + CRC32=72bit, rest is LDPC zero-padding
+    [data_rec, err] = crcdetector(descr_data(1:72));
     if err ~= 0, continue; end
 
     % Parse

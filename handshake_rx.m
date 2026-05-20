@@ -57,7 +57,9 @@ rx_gain_rx_side = 25;
 fprintf('[RX] Building ACK waveform...\n');
 payload_ack = [Frame_head; Usr_ID; Frame_type_ack; Session_ID];
 enc_ack = crcgenerator(payload_ack);
-payload_frame_ack = [enc_ack; Frame_end];
+% LDPC requires exactly 486 input bits; pad to match
+pad_len_ack = 486 - length(enc_ack);
+payload_frame_ack = [enc_ack; zeros(pad_len_ack, 1)];
 
 scr_ack = zeros(length(payload_frame_ack), 1);
 for i = 1:floor(length(payload_frame_ack)/length(scr_seq))
@@ -182,7 +184,8 @@ for idx = 1:1000
                 descr(st_:ed_) = xor(rx_bits(st_:ed_), scr_seq);
             end
 
-            [data_rec, err] = crcdetector(descr(1:end-358));
+            % Info=40bit + CRC32=72bit, rest is LDPC zero-padding
+            [data_rec, err] = crcdetector(descr(1:72));
             if err ~= 0, continue; end
 
             offset = 0;
