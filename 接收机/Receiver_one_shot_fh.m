@@ -5,7 +5,7 @@ clear
 clc
 close all force
 warning('off', 'all');
-fprintf('\n========== One-Shot FH Receiver ==========\n');
+fprintf('\n========== 单次跳频接收机 ==========\n');
 
 %% =========== Configuration ===========
 defs = link_phy_defs();
@@ -15,7 +15,7 @@ Threshold = 240;
 Threshold_FB = 220;
 BUS_RX_SAMPLES = defs.slot_len_samples;
 FB_TX_SAMPLES = 80000;
-CONTROL_RX_SAMPLES = 40000;
+CONTROL_RX_SAMPLES = 80000;  % must be > beacon length (~43084 samples)
 
 TELEMETRY_PERIOD_LOOPS = 10;  % Send telemetry every N data slots
 
@@ -30,7 +30,7 @@ STATE_DONE         = 5;
 state = STATE_WAIT_BEACON;
 
 %% =========== BPSK Handshake PHY Setup (matching proven handshake_tx.m) ===========
-fprintf('[RX-HS] Setting up BPSK handshake PHY...\n');
+fprintf('[RX-HS] 正在设置BPSK握手物理层...\n');
 hs_sps = 4;
 hs_sf = 15;
 hs_M = 2;
@@ -61,7 +61,7 @@ hs_Frame_type_telem  = double(dec2bin(31, 8) == '1')';
 hs_Frame_type_result = double(dec2bin(32, 8) == '1')';
 
 %% Pre-build READY waveform for discovery (BPSK+spreading, same as proven handshake)
-fprintf('[RX-HS] Building READY waveform...\n');
+fprintf('[RX-HS] 正在构建READY波形...\n');
 hs_payload_ready = [hs_Frame_head; hs_Usr_ID; hs_Frame_type_ready; zeros(16, 1)];  % READY=30, session_id=0
 hs_enc_ready = hs_crcgenerator(hs_payload_ready);
 hs_pad_len_ready = 486 - length(hs_enc_ready);
@@ -81,7 +81,7 @@ hs_mod_ready = hs_qpskmod(0.5*(hs_spread_ready + 1));
 hs_tx_in_ready = [hs_head_fb; hs_mod_ready; zeros(hs_sps*10, 1)];
 hs_ready_wave_full = hs_txfilter(hs_tx_in_ready);
 hs_ready_wave_full = [zeros(2000, 1); hs_ready_wave_full];
-fprintf('[RX-HS] READY waveform: %d samples (%.2f ms)\n', ...
+fprintf('[RX-HS] READY波形: %d 采样点 (%.2f 毫秒)\n', ...
     length(hs_ready_wave_full), length(hs_ready_wave_full)/200e6*512*1000);
 
 % Placeholder ACK - will be rebuilt with correct session_id after BEACON detection
@@ -110,7 +110,7 @@ slot_ptr = 1;
 phy_metrics = [];  % store latest physical metrics
 
 %% =========== SDR Initialization ===========
-disp('[RX-HW] Forcing release of any lingering USRP handles...');
+disp('[RX-HW] 强制释放残留USRP句柄...');
 % Force-clear any stuck USRP handles from previous runs
 try
     old_radios = instrfindall('Type', 'usrp');
@@ -128,7 +128,7 @@ catch
 end
 pause(1);  % let hardware fully release
 
-disp('[RX-HW] Initializing USRP...');
+disp('[RX-HW] 正在初始化USRP...');
 
 radio_tx = comm.SDRuTransmitter('Platform', 'X310', 'IPAddress', '192.168.10.2');
 radio_tx.ChannelMapping = 1;
@@ -151,7 +151,7 @@ radio_rx.CenterFrequency = hs_anchor_freq;
 radio_rx.Gain = 30;
 
 cleanupObj = onCleanup(@() safe_release(radio_tx, radio_rx));
-disp('[RX-HW] USRP ready.');
+disp('[RX-HW] USRP就绪.');
 
 %% =========== UI Configuration ===========
 rx_ui.enable = true;
@@ -175,9 +175,9 @@ for idx = 1:100000
 
             try
                 [rx_sig, ~, rx_overrun] = radio_rx();
-                if rx_overrun, warning('[RX-WARN] Overrun'); end
+                if rx_overrun, warning('[RX-WARN] 接收溢出'); end
             catch ME
-                warning('[RX-ERR] HW error: %s', ME.message);
+                warning('[RX-ERR] 硬件错误: %s', ME.message);
                 pause(0.05);  % brief backoff on error
                 continue;
             end
@@ -185,7 +185,7 @@ for idx = 1:100000
             % Try to decode BEACON using proven BPSK handshake decoder
             rx_diag_count = rx_diag_count + 1;
             if mod(rx_diag_count, 20) == 0
-                fprintf('[RX-DIAG] #%d | rms=%.4f | pk=%.4f\n', ...
+                fprintf('[RX-DIAG] #%d | 有效值=%.4f | 峰值=%.4f\n', ...
                     rx_diag_count, rms(rx_sig), max(abs(rx_sig)));
             end
             [ctrl_valid, ctrl_data] = decode_ctrl_hs(rx_sig, hs_rxfilter, hs_head_fb, ...
@@ -193,7 +193,7 @@ for idx = 1:100000
 
             if ctrl_valid && ctrl_data.frame_type == 100  % BEACON
                 session_id = ctrl_data.session_id;
-                fprintf('[RX] Got BEACON at iter %d: session=%d\n', idx, session_id);
+                fprintf('[RX] 检测到BEACON 循环%d: 会话=%d\n', idx, session_id);
 
                 % Build ACK with correct session_id (not the pre-built placeholder)
                 hs_ack_wave_full = build_ctrl_wave_hs(session_id, 101, hs_head_fb, ...
@@ -212,7 +212,7 @@ for idx = 1:100000
                 slot_len_samples = ctrl_data.slot_len;
                 codewords_per_slot = ctrl_data.codewords_per_slot;
 
-                fprintf('[RX] Got direct START: session=%d | hop_seed=%d | slots=%d\n', ...
+                fprintf('[RX] 直接收到START: 会话=%d | 跳频种子=%d | 时隙=%d\n', ...
                     session_id, hop_seed, total_slots);
 
                 % Generate hop sequence, init cache
@@ -241,9 +241,9 @@ for idx = 1:100000
 
             try
                 [rx_sig, ~, rx_overrun] = radio_rx();
-                if rx_overrun, warning('[RX-WARN] Overrun'); end
+                if rx_overrun, warning('[RX-WARN] 接收溢出'); end
             catch ME
-                warning('[RX-ERR] HW error: %s', ME.message);
+                warning('[RX-ERR] 硬件错误: %s', ME.message);
                 pause(0.05);
                 continue;
             end
@@ -265,7 +265,7 @@ for idx = 1:100000
                 frame_cache = struct();
                 frame_cache = rx_frame_cache_update(frame_cache, [], session_id);
 
-                fprintf('[RX] START received, beginning FOLLOW_HOP: slots=%d | cw/slot=%d\n', ...
+                fprintf('[RX] 收到START, 开始跳频跟随: 时隙=%d | 码字/时隙=%d\n', ...
                     total_slots, codewords_per_slot);
 
                 state = STATE_FOLLOW_HOP;
@@ -294,9 +294,9 @@ for idx = 1:100000
 
                 try
                     [rx_sig, ~, rx_overrun] = radio_rx();
-                    if rx_overrun, warning('[RX-WARN] Overrun at slot %d', slot_ptr); end
+                    if rx_overrun, warning('[RX-WARN] 时隙%d接收溢出', slot_ptr); end
                 catch ME
-                    warning('[RX-ERR] HW error at slot %d: %s', slot_ptr, ME.message);
+                    warning('[RX-ERR] 时隙%d硬件错误: %s', slot_ptr, ME.message);
                     slot_ptr = slot_ptr + 1;
                     continue;
                 end
@@ -309,13 +309,13 @@ for idx = 1:100000
 
                     if ~isempty(frame_packets)
                         frame_cache = rx_frame_cache_update(frame_cache, frame_packets, session_id);
-                        fprintf('[RX-DATA] Slot %d/%d | Freq=%.1f GHz | SNR=%.1f dB | Got %d frames | Cache: %d/%d\n', ...
+                        fprintf('[RX-DATA] 时隙 %d/%d | 频率=%.1f GHz | 信噪比=%.1f dB | 收到%d帧 | 缓存: %d/%d\n', ...
                             slot_ptr, total_slots, defs.Carrier_set(carrier_idx)/1e9, ...
                             phy_metrics.snr_est, length(frame_packets), ...
                             sum(frame_cache.received_map), frame_cache.total_frame_num);
                     end
                 else
-                    fprintf('[RX-DATA] Slot %d/%d | Freq=%.1f GHz | No sync\n', ...
+                    fprintf('[RX-DATA] 时隙 %d/%d | 频率=%.1f GHz | 无同步\n', ...
                         slot_ptr, total_slots, defs.Carrier_set(carrier_idx)/1e9);
                 end
 
@@ -329,22 +329,22 @@ for idx = 1:100000
 
             else
                 % All slots received
-                fprintf('[RX] All %d slots received, entering FEC_REBUILD...\n', total_slots);
+                fprintf('[RX] 所有%d个时隙已接收, 进入前向纠错重建...\n', total_slots);
                 state = STATE_FEC_REBUILD;
             end
 
         case STATE_FEC_REBUILD
-            fprintf('[RX-FEC] Rebuilding file from %d received frames (%d/%d)...\n', ...
+            fprintf('[RX-FEC] 正在从%d个已接收帧重建文件 (%d/%d)...\n', ...
                 sum(frame_cache.received_map), sum(frame_cache.received_map), frame_cache.total_frame_num);
 
             [file_bytes, rebuild_info] = rebuild_file_from_fec(frame_cache, pwd);
 
             if rebuild_info.success
-                fprintf('[RX-FEC] Recovery: %.1f%% | Groups: %d OK, %d failed | CRC match: %d\n', ...
+                fprintf('[RX-FEC] 恢复率: %.1f%% | 组: %d 成功, %d 失败 | CRC匹配: %d\n', ...
                     rebuild_info.recovery_rate*100, rebuild_info.fec_groups_recovered, ...
                     rebuild_info.fec_groups_failed, rebuild_info.file_crc_match);
             else
-                fprintf('[RX-FEC] Recovery failed: %s\n', rebuild_info.status);
+                fprintf('[RX-FEC] 恢复失败: %s\n', rebuild_info.status);
             end
 
             state = STATE_RESULT_REPORT;
@@ -374,30 +374,30 @@ for idx = 1:100000
             radio_tx(tx_sig);
         end
     catch ME
-        warning('[RX-ERR] FB TX error: %s', ME.message);
+        warning('[RX-ERR] 反馈发送错误: %s', ME.message);
     end
 
     % ---- Status ----
     if mod(idx, 10) == 0
         state_names = {'WAIT_BEACON', 'READY_SENT', 'FOLLOW_HOP', 'FEC_REBUILD', 'RESULT_REPORT', 'DONE'};
         if state == STATE_FOLLOW_HOP
-            fprintf('[RX] idx=%d | state=%s | slot=%d/%d | rx=%d/%d\n', ...
+            fprintf('[RX] 循环=%d | 状态=%s | 时隙=%d/%d | 接收=%d/%d\n', ...
                 idx, state_names{state+1}, min(slot_ptr, total_slots), total_slots, ...
                 sum(frame_cache.received_map), frame_cache.total_frame_num);
         else
-            fprintf('[RX] idx=%d | state=%s\n', idx, state_names{state+1});
+            fprintf('[RX] 循环=%d | 状态=%s\n', idx, state_names{state+1});
         end
     end
 
     if state == STATE_DONE
-        fprintf('[RX] Session complete, exiting.\n');
+        fprintf('[RX] 会话完成, 退出.\n');
         break;
     end
 end
 
 release(radio_rx);
 release(radio_tx);
-fprintf('[RX] Receiver shutdown complete.\n');
+fprintf('[RX] 接收机关闭完成.\n');
 
 %% =========== Helper Functions ===========
 function [valid, ctrl_data] = decode_ctrl_hs(rx_sig, rxfilter, head_fb, pn_fb, ...
@@ -406,7 +406,7 @@ function [valid, ctrl_data] = decode_ctrl_hs(rx_sig, rxfilter, head_fb, pn_fb, .
 % Handles both short format (BEACON/ACK: 40 info bits) and long format (START: 152 info bits)
 valid = false;
 ctrl_data = struct();
-Threshold = 200;
+Threshold = 250;  % match proven handshake_rx.m
 maxnumiter = 10;
 
 Rec_sig = rxfilter(complex(rx_sig(:)));
@@ -574,5 +574,5 @@ try
     if ~isempty(rx) && isvalid(rx), release(rx); end
 catch
 end
-disp('SDR resources released.');
+disp('SDR资源已释放.');
 end

@@ -5,7 +5,7 @@ clear
 clc
 close all force
 warning('off', 'all');
-fprintf('\n========== One-Shot FH Transmitter ==========\n');
+fprintf('\n========== 单次跳频发射机 ==========\n');
 
 %% =========== Configuration ===========
 defs = link_phy_defs();
@@ -42,7 +42,7 @@ END_REPEAT = 5;
 
 %% =========== Phase 1: INIT - File Processing ===========
 state = STATE_INIT;
-fprintf('[TX-INIT] Processing file...\n');
+fprintf('[TX-INIT] 正在处理文件...\n');
 
 cfg = struct();
 cfg.hop_seed = hop_seed;
@@ -67,12 +67,12 @@ for p = 1:total_src_packets
     src_packets{p} = pkt;
 end
 
-fprintf('[TX-INIT] File: %d bytes -> %d source packets (40B each)\n', ...
+fprintf('[TX-INIT] 文件: %d 字节 -> %d 个源数据包(每包40字节)\n', ...
     length(business_bytes), total_src_packets);
 
 % FEC encoding
 fec_groups = fec_rs_encode_groups(src_packets, fec_k, fec_r);
-fprintf('[TX-INIT] FEC: %d groups, K=%d, R=%d\n', length(fec_groups), fec_k, fec_r);
+fprintf('[TX-INIT] 前向纠错: %d 组, K=%d, R=%d\n', length(fec_groups), fec_k, fec_r);
 
 % Build V2 frames
 [frame_list, fec_info] = build_forward_frames_v2(src_packets, meta_info, fec_groups);
@@ -86,11 +86,11 @@ slot_cache = build_hop_slot_waveform(tx_cache, fec_info);
 total_slots = fec_info.total_slots;
 session_id = fec_info.session_id;
 
-fprintf('[TX-INIT] Ready: session=%d | slots=%d | carrier_set=%d freqs\n', ...
+fprintf('[TX-INIT] 就绪: 会话=%d | 时隙=%d | 载波集=%d 个频率\n', ...
     session_id, total_slots, defs.num_carriers);
 
 %% =========== BPSK Handshake PHY Setup (from proven handshake_tx.m) ===========
-fprintf('[TX-HS] Setting up BPSK handshake PHY...\n');
+fprintf('[TX-HS] 正在设置BPSK握手物理层...\n');
 hs_sps = 4;
 hs_sf = 15;
 hs_M = 2;
@@ -121,7 +121,7 @@ hs_Frame_type_end    = double(dec2bin(42, 8) == '1')';
 hs_Session_ID = double(dec2bin(session_id, 16) == '1')';
 
 %% Pre-build BEACON waveform (BPSK+spreading, same as proven handshake)
-fprintf('[TX-HS] Building BEACON waveform...\n');
+fprintf('[TX-HS] 正在构建BEACON波形...\n');
 hs_payload_beacon = [hs_Frame_head; hs_Usr_ID; hs_Frame_type_beacon; hs_Session_ID];
 hs_enc_beacon = hs_crcgenerator(hs_payload_beacon);
 hs_pad_len = 486 - length(hs_enc_beacon);
@@ -141,11 +141,11 @@ hs_mod_beacon = hs_qpskmod(0.5*(hs_spread_beacon + 1));
 hs_tx_in_beacon = [hs_head_fb; hs_mod_beacon; zeros(hs_sps*10, 1)];
 hs_beacon_wave_full = hs_txfilter(hs_tx_in_beacon);
 hs_beacon_wave_full = [zeros(2000, 1); hs_beacon_wave_full];
-fprintf('[TX-HS] BEACON waveform: %d samples (%.2f ms)\n', ...
+fprintf('[TX-HS] BEACON波形: %d 采样点 (%.2f 毫秒)\n', ...
     length(hs_beacon_wave_full), length(hs_beacon_wave_full)/200e6*512*1000);
 
 %% Pre-build START control waveform (carries hop_seed, total_slots, etc.)
-fprintf('[TX-HS] Building START waveform...\n');
+fprintf('[TX-HS] 正在构建START波形...\n');
 hs_start_info_bits = [ ...
     int_to_bits_hs(meta_info.hop_seed, 32); ...
     int_to_bits_hs(total_slots, 16); ...
@@ -173,7 +173,7 @@ hs_mod_start = hs_qpskmod(0.5*(hs_spread_start + 1));
 hs_tx_in_start = [hs_head_fb; hs_mod_start; zeros(hs_sps*10, 1)];
 hs_start_wave_full = hs_txfilter(hs_tx_in_start);
 hs_start_wave_full = [zeros(2000, 1); hs_start_wave_full];
-fprintf('[TX-HS] START waveform: %d samples (%.2f ms)\n', ...
+fprintf('[TX-HS] START波形: %d 采样点 (%.2f 毫秒)\n', ...
     length(hs_start_wave_full), length(hs_start_wave_full)/200e6*512*1000);
 
 %% Pre-build END waveform
@@ -203,7 +203,7 @@ hs_anchor_freq = 2.5e9;
 hs_feedback_freq = 1.45e9;
 
 %% =========== SDR Initialization ===========
-fprintf('[TX-HW] Initializing USRP...\n');
+fprintf('[TX-HW] 正在初始化USRP...\n');
 
 radio_tx = comm.SDRuTransmitter('Platform', 'X310', 'IPAddress', '192.168.10.2');
 radio_tx.ChannelMapping = 1;
@@ -226,7 +226,7 @@ radio_rx.CenterFrequency = hs_feedback_freq;
 radio_rx.Gain = 30;
 
 cleanupObj = onCleanup(@() safe_release(radio_tx, radio_rx));
-fprintf('[TX-HW] USRP ready.\n');
+fprintf('[TX-HW] USRP就绪.\n');
 
 %% =========== UI Configuration ===========
 tx_ui.enable = true;
@@ -243,7 +243,7 @@ end_count = 0;
 slot_ptr = 1;
 tx_duration = 0;
 
-fprintf('[TX] Entering WAIT_READY state, sending BEACON on %.2f GHz\n', hs_anchor_freq/1e9);
+fprintf('[TX] 进入等待就绪状态, 在%.2f GHz发送BEACON\n', hs_anchor_freq/1e9);
 
 %% =========== Main Loop ===========
 for idx = 1:100000
@@ -273,7 +273,7 @@ for idx = 1:100000
                 state = STATE_DATA_ONCE;
                 slot_ptr = 1;
                 t0_data = tic;  % start data-phase timer
-                fprintf('[TX] Countdown done, starting DATA_ONCE...\n');
+                fprintf('[TX] 倒计时完成, 开始单次数据传输...\n');
             end
 
         case STATE_DATA_ONCE
@@ -286,13 +286,13 @@ for idx = 1:100000
                 slot_ptr = slot_ptr + 1;
 
                 if mod(slot_ptr, 5) == 0 || slot_ptr > total_slots
-                    fprintf('[TX-DATA] Slot %d/%d | Freq=%.1f GHz | frames=%d\n', ...
+                    fprintf('[TX-DATA] 时隙 %d/%d | 频率=%.1f GHz | 帧数=%d\n', ...
                         slot_ptr-1, total_slots, ...
                         defs.Carrier_set(slot.carrier_index)/1e9, slot.num_frames);
                 end
             else
                 tx_duration = toc(t0_data);
-                fprintf('[TX-DATA] All slots sent, duration=%.2f s\n', tx_duration);
+                fprintf('[TX-DATA] 所有时隙已发送, 耗时=%.2f 秒\n', tx_duration);
                 state = STATE_END_LISTEN;
             end
 
@@ -302,7 +302,7 @@ for idx = 1:100000
             radio_tx.CenterFrequency = hs_anchor_freq;
             end_count = end_count + 1;
             if end_count > 30
-                fprintf('[TX] END sent %d times, no RESULT, finishing.\n', end_count);
+                fprintf('[TX] END已发送%d次, 未收到RESULT, 结束.\n', end_count);
                 state = STATE_DONE;
             end
 
@@ -335,10 +335,10 @@ for idx = 1:100000
         end
         [fb_sig, ~, rx_overrun] = radio_rx();
         if rx_overrun
-            warning('[TX-WARN] Feedback overrun');
+            warning('[TX-WARN] 反馈通道溢出');
         end
     catch ME
-        warning('[TX-ERR] HW error: %s', ME.message);
+        warning('[TX-ERR] 硬件错误: %s', ME.message);
         continue;
     end
 
@@ -347,21 +347,21 @@ for idx = 1:100000
         hs_scr_seq, hs_cfgLDPCDec, hs_crcdetector, hs_qpskdemod, hs_sps, hs_sf);
 
     if fb_valid
-        fprintf('[TX-FB] Got ACK: type=%d | session=%d\n', ...
+        fprintf('[TX-FB] 收到ACK: 类型=%d | 会话=%d\n', ...
             fb_data.frame_type, fb_data.session_id);
 
         % Handle ACK (frame_type == 101) from handshake
         % Require session_id match to avoid false trigger from RX discovery blips
         if fb_data.frame_type == 101 && state == STATE_WAIT_READY ...
                 && fb_data.session_id == session_id
-            fprintf('[TX] Received ACK, starting countdown...\n');
+            fprintf('[TX] 收到ACK, 开始倒计时...\n');
             state = STATE_START_COUNTDOWN;
             countdown_remaining = START_COUNTDOWN_SLOTS;
         end
 
         % Handle RX_RESULT (frame_type == 32)
         if fb_data.frame_type == 32 && state == STATE_END_LISTEN
-            fprintf('[TX] Received RX_RESULT, transmission complete.\n');
+            fprintf('[TX] 收到接收机结果, 传输完成.\n');
             state = STATE_DONE;
         end
     end
@@ -369,13 +369,13 @@ for idx = 1:100000
     % ---- Periodic Status ----
     if mod(idx, 10) == 0
         state_names = {'INIT', 'WAIT_READY', 'START_COUNTDOWN', 'DATA_ONCE', 'END_LISTEN', 'DONE'};
-        fprintf('[TX] idx=%d | state=%s | slot=%d/%d\n', ...
+        fprintf('[TX] 循环=%d | 状态=%s | 时隙=%d/%d\n', ...
             idx, state_names{state+1}, min(slot_ptr, total_slots), total_slots);
     end
 
     % ---- Exit Conditions ----
     if state == STATE_DONE
-        fprintf('[TX] Session complete, exiting.\n');
+        fprintf('[TX] 会话完成, 退出.\n');
         break;
     end
 
@@ -383,7 +383,7 @@ end
 
 release(radio_rx);
 release(radio_tx);
-fprintf('[TX] Transmitter shutdown complete.\n');
+fprintf('[TX] 发射机关闭完成.\n');
 
 %% =========== Helper Functions ===========
 function sig = build_control_frame(session_id, frame_type, meta_info, fec_info, slot_len)
@@ -471,7 +471,7 @@ try
     if ~isempty(rx) && isvalid(rx), release(rx); end
 catch
 end
-disp('SDR resources released.');
+disp('SDR资源已释放.');
 end
 
 %% =========== Handshake Helper Functions (from proven handshake_tx.m) ===========
