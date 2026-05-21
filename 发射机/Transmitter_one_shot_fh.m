@@ -15,7 +15,7 @@ transmit_mode = 'image';  % 'text' | 'image' | 'video'
 file_name = 'p2.jpg';
 text_content = 'Hello, One-Shot FH!';
 
-Anti_Jamming_Mode = 0;    % 0=QPSK, 1=BPSK+spreading
+Anti_Jamming_Mode = 1;    % 0=QPSK, 1=BPSK+spreading (抗干扰+处理增益)
 Power_gain = 30;   % OTA: increased for over-the-air
 Power = 1.0;
 
@@ -336,7 +336,7 @@ for idx = 1:100000
     % ---- Transmit and Listen ----
     % Scale: 0.8 for OFDM data slots (high PAPR), 1.0 for handshake (BPSK)
     if use_bus_slot
-        tx_sig = sqrt(Power) * 0.8 * tx_sig;
+        tx_sig = sqrt(Power) * tx_sig;  % full power for data too
     else
         tx_sig = sqrt(Power) * tx_sig;
     end
@@ -346,7 +346,7 @@ for idx = 1:100000
             % DATA_ONCE: radio_tx是非阻塞的, USRP实际发送一帧需~0.41s
             % 必须等USRP发完再发下一时隙，否则缓冲区溢出
             radio_tx(tx_sig);
-            pause(0.25);
+            pause(0.35);
         elseif state == STATE_WAIT_READY || state == STATE_START_COUNTDOWN || state == STATE_END_LISTEN
             % Handshake states: TX actual signal directly (no padding), like proven handshake_tx.m
             if max(abs(tx_sig)) > 0

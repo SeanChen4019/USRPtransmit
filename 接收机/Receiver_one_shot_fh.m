@@ -10,8 +10,8 @@ fprintf('\n========== 单次跳频接收机 ==========\n');
 %% =========== Configuration ===========
 defs = link_phy_defs();
 
-Anti_Jamming_Mode = 0;  % 0=QPSK, 1=BPSK+spreading
-Threshold = 180;  % data slot preamble detection threshold
+Anti_Jamming_Mode = 1;  % 0=QPSK, 1=BPSK+spreading (与TX一致)
+Threshold = 120;  % data slot preamble detection threshold (BPSK+扩频)
 Threshold_FB = 220;
 BUS_RX_SAMPLES = defs.slot_len_samples;
 FB_TX_SAMPLES = 80000;
