@@ -19,9 +19,17 @@ CONTROL_RX_SAMPLES = 80000;  % must be > beacon length (~43084 samples)
 
 TELEMETRY_PERIOD_LOOPS = 10;  % Send telemetry every N data slots
 
-% ---- Handshake Mode ----
-SKIP_HANDSHAKE = true;      % true=跳过握手直接监听跳频数据
-FIXED_HOP_SEED = 12345;     % 无握手模式下的固定跳频种子(与TX一致)
+% ---- Transmission Mode ----
+SKIP_HANDSHAKE = false;       % true=跳过握手直接监听数据
+SINGLE_FREQ_MODE = true;      % true=单频率传输(不跳频), false=跳频
+SINGLE_FREQ = 2.5e9;          % 单频率模式下的载波频率(与TX一致)
+FIXED_HOP_SEED = 12345;       % 无握手模式下的固定跳频种子(与TX一致)
+
+if SINGLE_FREQ_MODE
+    defs.Carrier_set = SINGLE_FREQ;
+    defs.num_carriers = 1;
+    fprintf('[RX] 单频率模式: %.1f GHz (不跳频)\n', SINGLE_FREQ/1e9);
+end
 RX_IDLE_TIMEOUT = 5;        % 无握手模式下连续无数据超时秒数
 MAX_IDLE_SLOTS = 10;        % 无握手模式下连续空闲时隙数(超过则判定TX已结束)
 
