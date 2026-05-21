@@ -248,6 +248,9 @@ start_count = 0;
 end_count = 0;
 slot_ptr = 1;
 tx_duration = 0;
+freq_received = false;
+pending_carrier = 0;
+last_freq_time = tic;
 
 %% =========== Synchronized Start ===========
 t_now = datetime('now');
@@ -296,22 +299,31 @@ for idx = 1:100000
             end
 
         case STATE_DATA_ONCE
-            % Send one hop slot
+            % ACK-driven: wait for RX frequency instruction before each slot
             if slot_ptr <= total_slots
-                slot = slot_cache(slot_ptr);
-                tx_sig = slot.waveform;
-                radio_tx.CenterFrequency = defs.Carrier_set(slot.carrier_index);
-                use_bus_slot = true;
-                % Print first slot and every 5th slot
-                if slot_ptr == 1 || mod(slot_ptr, 5) == 0 || slot_ptr == total_slots
-                    fprintf('[TX-DATA] 时隙 %d/%d | 频率=%.1f GHz | hop_idx=%d | 帧数=%d\n', ...
-                        slot_ptr, total_slots, ...
-                        defs.Carrier_set(slot.carrier_index)/1e9, ...
-                        slot.carrier_index, slot.num_frames);
+                if freq_received
+                    slot = slot_cache(slot_ptr);
+                    tx_sig = slot.waveform;
+                    radio_tx.CenterFrequency = defs.Carrier_set(pending_carrier);
+                    use_bus_slot = true;
+                    if slot_ptr == 1 || mod(slot_ptr, 5) == 0 || slot_ptr == total_slots
+                        fprintf('[TX-DATA] 时隙 %d/%d | 频率=%.1f GHz (RX指定) | 帧数=%d\n', ...
+                            slot_ptr, total_slots, ...
+                            defs.Carrier_set(pending_carrier)/1e9, ...
+                            slot.num_frames);
+                    end
+                    slot_ptr = slot_ptr + 1;
+                    freq_received = false;
+                    last_freq_time = tic;
+                else
+                    tx_sig = zeros(CONTROL_SAMPLES, 1);
+                    use_bus_slot = false;
+                    if toc(last_freq_time) > 10.0 && slot_ptr == 1
+                        fprintf('[TX-DATA] 等待RX频率指令超时(10s), 回退...\n');
+                        state = STATE_WAIT_READY;
+                    end
                 end
-                slot_ptr = slot_ptr + 1;
             else
-                % Wait for USRP to finish transmitting last slot before measuring
                 slot_dur = BUS_SLOT_SAMPLES / (200e6/512);
                 pause(slot_dur);
                 tx_duration = toc(t0_data);
@@ -347,10 +359,13 @@ for idx = 1:100000
             % 必须等USRP发完再发下一时隙，否则缓冲区溢出
             radio_tx(tx_sig);
             pause(0.35);
-        elseif state == STATE_WAIT_READY || state == STATE_START_COUNTDOWN || state == STATE_END_LISTEN
-            % Handshake states: TX actual signal directly (no padding), like proven handshake_tx.m
+        elseif state == STATE_WAIT_READY || state == STATE_START_COUNTDOWN || state == STATE_END_LISTEN || state == STATE_DATA_ONCE
+            % Handshake + DATA_ONCE-wait states: transmit only if real signal present
             if max(abs(tx_sig)) > 0
                 radio_tx(tx_sig);
+            end
+            if state == STATE_DATA_ONCE
+                pause(0.01);  % short pause when waiting for ACK
             end
         else
             % Other states: pad to bus slot size
@@ -387,6 +402,14 @@ for idx = 1:100000
                 state = STATE_DATA_ONCE;
                 slot_ptr = 1;
                 t0_data = tic;
+                freq_received = false;
+                last_freq_time = tic;
+            elseif state == STATE_DATA_ONCE && fb_data.next_carrier > 0
+                pending_carrier = fb_data.next_carrier;
+                freq_received = true;
+                last_freq_time = tic;
+                fprintf('[TX-FB] RX指定频率: %.1f GHz (时隙=%d)\n', ...
+                    defs.Carrier_set(pending_carrier)/1e9, fb_data.slot_ack);
             end
         end
 
@@ -576,18 +599,33 @@ for j = 1:length(idx_start_temp)
         descr_data(st_:ed_) = xor(rx_bits(st_:ed_), scr_seq);
     end
 
-    % CRC check: Info(40bit) + CRC32 = 72bit, rest is LDPC zero-padding
+    % Try short format first (BEACON/ACK: 40 info + 32 CRC = 72 bits)
     [data_rec, err] = crcdetector(descr_data(1:72));
-    if err ~= 0, continue; end
+    if err == 0
+        offset = 0;
+        data.frame_head = bits2int_hs(data_rec(offset+1:offset+8)); offset = offset+8;
+        data.user_id    = bits2int_hs(data_rec(offset+1:offset+8)); offset = offset+8;
+        data.frame_type = bits2int_hs(data_rec(offset+1:offset+8)); offset = offset+8;
+        data.session_id = bits2int_hs(data_rec(offset+1:offset+16));
+        data.next_carrier = 0;
+        data.slot_ack = 0;
+        valid = true;
+        return;
+    end
 
-    offset = 0;
-    data.frame_head = bits2int_hs(data_rec(offset+1:offset+8)); offset = offset+8;
-    data.user_id    = bits2int_hs(data_rec(offset+1:offset+8)); offset = offset+8;
-    data.frame_type = bits2int_hs(data_rec(offset+1:offset+8)); offset = offset+8;
-    data.session_id = bits2int_hs(data_rec(offset+1:offset+16));
-
-    valid = true;
-    return;
+    % Try long format (ACK_FREQ: 152 info + 32 CRC = 184 bits)
+    [data_rec2, err2] = crcdetector(descr_data(1:184));
+    if err2 == 0
+        offset = 0;
+        data.frame_head = bits2int_hs(data_rec2(offset+1:offset+8)); offset = offset+8;
+        data.user_id    = bits2int_hs(data_rec2(offset+1:offset+8)); offset = offset+8;
+        data.frame_type = bits2int_hs(data_rec2(offset+1:offset+8)); offset = offset+8;
+        data.session_id = bits2int_hs(data_rec2(offset+1:offset+16)); offset = offset+16;
+        data.next_carrier = bits2int_hs(data_rec2(offset+1:offset+8)); offset = offset+8;
+        data.slot_ack = bits2int_hs(data_rec2(offset+1:offset+16));
+        valid = true;
+        return;
+    end
 end
 end
 

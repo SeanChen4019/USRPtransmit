@@ -108,6 +108,7 @@ feedback_seq = 0;
 ready_discovery_count = 0;
 slot_ptr = 1;
 last_sync_time = 0;
+need_send_ack = false;
 ack_burst_remaining = 0;
 phy_metrics = [];  % store latest physical metrics
 
@@ -251,6 +252,7 @@ for idx = 1:100000
                 state = STATE_FOLLOW_HOP;
                 slot_ptr = 1;
                 last_sync_time = tic;
+                need_send_ack = true;
                 data_start_time = tic;
                 % One-time switch to bus RX sample size for data phase
                 release(radio_rx);
@@ -311,6 +313,7 @@ for idx = 1:100000
                 state = STATE_FOLLOW_HOP;
                 slot_ptr = 1;
                 last_sync_time = tic;
+                need_send_ack = true;
                 data_start_time = tic;
                 % One-time switch to bus RX sample size for data phase
                 release(radio_rx);
@@ -330,13 +333,25 @@ for idx = 1:100000
             end
 
         case STATE_FOLLOW_HOP
-            % Follow hop sequence, receive slots
+            % ACK-driven: tell TX which frequency to use, then listen
             if slot_ptr <= total_slots
-                % Tune to hop frequency
                 carrier_idx = hop_seq(slot_ptr);
-                radio_rx.CenterFrequency = defs.Carrier_set(carrier_idx);
 
-                % Settle time (simplified - use a small delay)
+                % Send ACK with frequency instruction to TX
+                if need_send_ack
+                    tx_sig = build_ctrl_wave_hs(session_id, 101, hs_head_fb, ...
+                        hs_pn_fb, hs_scr_seq, hs_cfgLDPCEnc, hs_crcgenerator, ...
+                        hs_qpskmod, hs_txfilter, hs_sps, hs_sf, carrier_idx, slot_ptr);
+                    radio_tx.CenterFrequency = hs_feedback_freq;
+                    need_send_ack = false;
+                    if slot_ptr == 1 || mod(slot_ptr, 5) == 0
+                        fprintf('[RX-ACK] 指定TX频率=%.1f GHz (时隙=%d)\n', ...
+                            defs.Carrier_set(carrier_idx)/1e9, slot_ptr);
+                    end
+                end
+
+                % Tune to hop frequency and listen
+                radio_rx.CenterFrequency = defs.Carrier_set(carrier_idx);
                 pause(0.01);  % 10ms retune guard
 
                 try
@@ -360,30 +375,20 @@ for idx = 1:100000
                             slot_ptr, total_slots, defs.Carrier_set(carrier_idx)/1e9, ...
                             phy_metrics.snr_est, length(frame_packets), ...
                             sum(frame_cache.received_map), frame_cache.total_frame_num);
-                        last_sync_time = tic;  % reset timeout on successful receive
+                        slot_ptr = slot_ptr + 1;
+                        need_send_ack = true;  % request next frequency
+                        last_sync_time = tic;
                     end
                 else
                     fprintf('[RX-DATA] 时隙 %d/%d | 频率=%.1f GHz | 无同步\n', ...
                         slot_ptr, total_slots, defs.Carrier_set(carrier_idx)/1e9);
                 end
 
-                % Only advance slot on successful sync (stay on same slot otherwise)
-                if phy_metrics.sync_success && ~isempty(frame_packets)
-                    slot_ptr = slot_ptr + 1;
-                end
-
-                % Timeout: if no data for 3 seconds, re-send ACK to re-sync with TX
+                % Timeout: if no data for 3 seconds, re-request same frequency
                 if toc(last_sync_time) > 3.0
-                    fprintf('[RX] 3秒无数据, 重发ACK...\n');
-                    tx_sig = hs_ack_wave_full;
-                    radio_tx.CenterFrequency = hs_feedback_freq;
-                    last_sync_time = tic;  % reset timer after sending ACK
-                end
-
-                % Periodic keep-alive (ACK blip on feedback channel)
-                if mod(slot_ptr, TELEMETRY_PERIOD_LOOPS) == 0
-                    tx_sig = hs_ack_wave_full;
-                    radio_tx.CenterFrequency = hs_feedback_freq;
+                    fprintf('[RX] %.0f秒无数据, 重发频率指令...\n', toc(last_sync_time));
+                    need_send_ack = true;
+                    last_sync_time = tic;
                 end
 
             else
@@ -616,15 +621,25 @@ v = (2.^(length(bits)-1:-1:0)) * bits(:);
 end
 
 function wave = build_ctrl_wave_hs(session_id, frame_type, hs_head_fb, hs_pn_fb, ...
-    hs_scr_seq, hs_cfgLDPCEnc, hs_crcgenerator, hs_qpskmod, hs_txfilter, hs_sps, hs_sf)
+    hs_scr_seq, hs_cfgLDPCEnc, hs_crcgenerator, hs_qpskmod, hs_txfilter, hs_sps, hs_sf, ...
+    next_carrier, slot_ack)
 % Build a handshake control waveform (ACK/RESULT) with given session_id and frame_type
-% Payload: FrameHead(8) + UserID(8) + FrameType(8) + SessionID(16) = 40 bits
+% Short format (no extra args): FrameHead(8) + UserID(8) + FrameType(8) + SessionID(16) = 40 bits
+% Long format (next_carrier provided): adds next_carrier(8) + slot_ack(16) + reserved(88) = 152 bits
 hs_Frame_head = [1;1;1;0;1;0;1;0];
 hs_Usr_ID = [0;0;0;0;0;1;0;1];
 session_bits = double(dec2bin(session_id, 16) == '1')';
 frame_type_bits = double(dec2bin(frame_type, 8) == '1')';
 
-payload = [hs_Frame_head; hs_Usr_ID; frame_type_bits; session_bits];
+use_long = (nargin >= 14) && ~isempty(next_carrier) && next_carrier > 0;
+if use_long
+    carrier_bits = double(dec2bin(next_carrier, 8) == '1')';
+    slot_ack_bits = double(dec2bin(slot_ack, 16) == '1')';
+    payload = [hs_Frame_head; hs_Usr_ID; frame_type_bits; session_bits; ...
+               carrier_bits; slot_ack_bits; zeros(88, 1)];
+else
+    payload = [hs_Frame_head; hs_Usr_ID; frame_type_bits; session_bits];
+end
 enc = hs_crcgenerator(payload);
 pad_len = 486 - length(enc);
 payload_frame = [enc; zeros(pad_len, 1)];
