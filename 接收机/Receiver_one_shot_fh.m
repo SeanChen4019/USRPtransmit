@@ -60,29 +60,32 @@ hs_Frame_type_ready  = double(dec2bin(30, 8) == '1')';
 hs_Frame_type_telem  = double(dec2bin(31, 8) == '1')';
 hs_Frame_type_result = double(dec2bin(32, 8) == '1')';
 
-%% Pre-build ACK waveform (BPSK+spreading, same as proven handshake)
-fprintf('[RX-HS] Building ACK waveform...\n');
-hs_payload_ack = [hs_Frame_head; hs_Usr_ID; hs_Frame_type_ack; zeros(16, 1)];  % session_id=0 placeholder
-hs_enc_ack = hs_crcgenerator(hs_payload_ack);
-hs_pad_len = 486 - length(hs_enc_ack);
-hs_payload_frame_ack = [hs_enc_ack; zeros(hs_pad_len, 1)];
+%% Pre-build READY waveform for discovery (BPSK+spreading, same as proven handshake)
+fprintf('[RX-HS] Building READY waveform...\n');
+hs_payload_ready = [hs_Frame_head; hs_Usr_ID; hs_Frame_type_ready; zeros(16, 1)];  % READY=30, session_id=0
+hs_enc_ready = hs_crcgenerator(hs_payload_ready);
+hs_pad_len_ready = 486 - length(hs_enc_ready);
+hs_payload_frame_ready = [hs_enc_ready; zeros(hs_pad_len_ready, 1)];
 
-hs_scr_ack = scramble_bits_hs(hs_payload_frame_ack, hs_scr_seq);
-hs_enc_bits_ack = ldpcEncode(hs_scr_ack, hs_cfgLDPCEnc);
-hs_inter_matrix_ack = reshape(hs_enc_bits_ack, 36, 18).';
-hs_inter_bits_ack = hs_inter_matrix_ack(:);
+hs_scr_ready = scramble_bits_hs(hs_payload_frame_ready, hs_scr_seq);
+hs_enc_bits_ready = ldpcEncode(hs_scr_ready, hs_cfgLDPCEnc);
+hs_inter_matrix_ready = reshape(hs_enc_bits_ready, 36, 18).';
+hs_inter_bits_ready = hs_inter_matrix_ready(:);
 
-hs_inter_polar_ack = 2*hs_inter_bits_ack - 1;
-hs_spread_ack = zeros(length(hs_inter_polar_ack)*hs_sf, 1);
-for ii = 1:length(hs_inter_polar_ack)
-    hs_spread_ack((ii-1)*hs_sf+1 : ii*hs_sf) = hs_inter_polar_ack(ii) * hs_pn_fb;
+hs_inter_polar_ready = 2*hs_inter_bits_ready - 1;
+hs_spread_ready = zeros(length(hs_inter_polar_ready)*hs_sf, 1);
+for ii = 1:length(hs_inter_polar_ready)
+    hs_spread_ready((ii-1)*hs_sf+1 : ii*hs_sf) = hs_inter_polar_ready(ii) * hs_pn_fb;
 end
-hs_mod_ack = hs_qpskmod(0.5*(hs_spread_ack + 1));
-hs_tx_in_ack = [hs_head_fb; hs_mod_ack; zeros(hs_sps*10, 1)];
-hs_ack_wave_full = hs_txfilter(hs_tx_in_ack);
-hs_ack_wave_full = [zeros(2000, 1); hs_ack_wave_full];
-fprintf('[RX-HS] ACK waveform: %d samples (%.2f ms)\n', ...
-    length(hs_ack_wave_full), length(hs_ack_wave_full)/200e6*512*1000);
+hs_mod_ready = hs_qpskmod(0.5*(hs_spread_ready + 1));
+hs_tx_in_ready = [hs_head_fb; hs_mod_ready; zeros(hs_sps*10, 1)];
+hs_ready_wave_full = hs_txfilter(hs_tx_in_ready);
+hs_ready_wave_full = [zeros(2000, 1); hs_ready_wave_full];
+fprintf('[RX-HS] READY waveform: %d samples (%.2f ms)\n', ...
+    length(hs_ready_wave_full), length(hs_ready_wave_full)/200e6*512*1000);
+
+% Placeholder ACK - will be rebuilt with correct session_id after BEACON detection
+hs_ack_wave_full = hs_ready_wave_full;  % temporary, replaced on BEACON detect
 
 %% Anchor / feedback frequencies (matching proven handshake)
 hs_anchor_freq = 2.5e9;
@@ -192,7 +195,10 @@ for idx = 1:100000
                 session_id = ctrl_data.session_id;
                 fprintf('[RX] Got BEACON at iter %d: session=%d\n', idx, session_id);
 
-                % Send ACK using proven BPSK waveform (like handshake_rx.m)
+                % Build ACK with correct session_id (not the pre-built placeholder)
+                hs_ack_wave_full = build_ctrl_wave_hs(session_id, 101, hs_head_fb, ...
+                    hs_pn_fb, hs_scr_seq, hs_cfgLDPCEnc, hs_crcgenerator, ...
+                    hs_qpskmod, hs_txfilter, hs_sps, hs_sf);
                 tx_sig = hs_ack_wave_full;
                 radio_tx.CenterFrequency = hs_feedback_freq;
 
@@ -221,10 +227,10 @@ for idx = 1:100000
                 release(radio_rx);
                 radio_rx.SamplesPerFrame = BUS_RX_SAMPLES;
             else
-                % Send low-duty-cycle RX_READY_DISCOVERY via BPSK
+                % Send low-duty-cycle discovery via READY (frame_type=30)
                 ready_discovery_count = ready_discovery_count + 1;
                 if mod(ready_discovery_count, 20) == 0
-                    tx_sig = hs_ack_wave_full;
+                    tx_sig = hs_ready_wave_full;
                     radio_tx.CenterFrequency = hs_feedback_freq;
                 end
             end
@@ -344,8 +350,11 @@ for idx = 1:100000
             state = STATE_RESULT_REPORT;
 
         case STATE_RESULT_REPORT
-            % Send RESULT repeatedly using BPSK ACK blip
-            tx_sig = hs_ack_wave_full;
+            % Send RESULT (frame_type=32) with correct session_id
+            hs_result_wave = build_ctrl_wave_hs(session_id, 32, hs_head_fb, ...
+                hs_pn_fb, hs_scr_seq, hs_cfgLDPCEnc, hs_crcgenerator, ...
+                hs_qpskmod, hs_txfilter, hs_sps, hs_sf);
+            tx_sig = hs_result_wave;
             radio_tx.CenterFrequency = hs_feedback_freq;
 
             metrics = compute_rx_metrics(phy_metrics, frame_cache, rebuild_info, toc(data_start_time));
@@ -524,6 +533,36 @@ end
 
 function v = bits2int_hs(bits)
 v = (2.^(length(bits)-1:-1:0)) * bits(:);
+end
+
+function wave = build_ctrl_wave_hs(session_id, frame_type, hs_head_fb, hs_pn_fb, ...
+    hs_scr_seq, hs_cfgLDPCEnc, hs_crcgenerator, hs_qpskmod, hs_txfilter, hs_sps, hs_sf)
+% Build a handshake control waveform (ACK/RESULT) with given session_id and frame_type
+% Payload: FrameHead(8) + UserID(8) + FrameType(8) + SessionID(16) = 40 bits
+hs_Frame_head = [1;1;1;0;1;0;1;0];
+hs_Usr_ID = [0;0;0;0;0;1;0;1];
+session_bits = double(dec2bin(session_id, 16) == '1')';
+frame_type_bits = double(dec2bin(frame_type, 8) == '1')';
+
+payload = [hs_Frame_head; hs_Usr_ID; frame_type_bits; session_bits];
+enc = hs_crcgenerator(payload);
+pad_len = 486 - length(enc);
+payload_frame = [enc; zeros(pad_len, 1)];
+
+scr = scramble_bits_hs(payload_frame, hs_scr_seq);
+enc_bits = ldpcEncode(scr, hs_cfgLDPCEnc);
+inter_matrix = reshape(enc_bits, 36, 18).';
+inter_bits = inter_matrix(:);
+
+inter_polar = 2*inter_bits - 1;
+spread = zeros(length(inter_polar)*hs_sf, 1);
+for ii = 1:length(inter_polar)
+    spread((ii-1)*hs_sf+1 : ii*hs_sf) = inter_polar(ii) * hs_pn_fb;
+end
+mod_sig = hs_qpskmod(0.5*(spread + 1));
+tx_in = [hs_head_fb; mod_sig; zeros(hs_sps*10, 1)];
+wave = hs_txfilter(tx_in);
+wave = [zeros(2000, 1); wave];
 end
 
 function safe_release(tx, rx)

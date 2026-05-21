@@ -311,7 +311,12 @@ for idx = 1:100000
     end
 
     % ---- Transmit and Listen ----
-    tx_sig = sqrt(Power) * 0.1 * tx_sig;
+    % Scale: 0.5 for OFDM data slots (high PAPR), 1.0 for handshake (BPSK)
+    if use_bus_slot
+        tx_sig = sqrt(Power) * 0.5 * tx_sig;
+    else
+        tx_sig = sqrt(Power) * tx_sig;
+    end
 
     try
         if use_bus_slot
@@ -346,7 +351,9 @@ for idx = 1:100000
             fb_data.frame_type, fb_data.session_id);
 
         % Handle ACK (frame_type == 101) from handshake
-        if fb_data.frame_type == 101 && state == STATE_WAIT_READY
+        % Require session_id match to avoid false trigger from RX discovery blips
+        if fb_data.frame_type == 101 && state == STATE_WAIT_READY ...
+                && fb_data.session_id == session_id
             fprintf('[TX] Received ACK, starting countdown...\n');
             state = STATE_START_COUNTDOWN;
             countdown_remaining = START_COUNTDOWN_SLOTS;
