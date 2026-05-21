@@ -19,6 +19,12 @@ CONTROL_RX_SAMPLES = 80000;  % must be > beacon length (~43084 samples)
 
 TELEMETRY_PERIOD_LOOPS = 10;  % Send telemetry every N data slots
 
+% ---- Handshake Mode ----
+SKIP_HANDSHAKE = true;      % true=跳过握手直接监听跳频数据
+FIXED_HOP_SEED = 12345;     % 无握手模式下的固定跳频种子(与TX一致)
+RX_IDLE_TIMEOUT = 5;        % 无握手模式下连续无数据超时秒数
+MAX_IDLE_SLOTS = 10;        % 无握手模式下连续空闲时隙数(超过则判定TX已结束)
+
 %% =========== State Machine Constants ===========
 STATE_WAIT_BEACON  = 0;
 STATE_READY_SENT   = 1;
@@ -109,6 +115,7 @@ ready_discovery_count = 0;
 slot_ptr = 1;
 last_sync_time = 0;
 ack_burst_remaining = 0;
+idle_slot_count = 0;
 phy_metrics = [];  % store latest physical metrics
 
 %% =========== SDR Initialization ===========
@@ -170,8 +177,35 @@ rx_ui.ctrl_period = 20;
 rx_ui.timeout = 0.03;
 
 
+%% =========== No-Handshake Initialization ===========
+if SKIP_HANDSHAKE
+    hop_seed = FIXED_HOP_SEED;
+    total_slots = 999;  % large number, will stop on idle timeout
+    codewords_per_slot = defs.codewords_per_slot_default;
+    slot_len_samples = defs.slot_len_samples;
+    hop_seq = build_hop_sequence(hop_seed, total_slots, defs.num_carriers);
+
+    frame_cache = struct();
+    frame_cache = rx_frame_cache_update(frame_cache, [], 0);
+
+    % Switch RX to data slot sample size immediately
+    release(radio_rx);
+    radio_rx.SamplesPerFrame = BUS_RX_SAMPLES;
+
+    state = STATE_FOLLOW_HOP;
+    slot_ptr = 1;
+    idle_slot_count = 0;
+    last_sync_time = tic;
+    data_start_time = tic;
+
+    fprintf('[RX] 跳过握手模式, hop_seed=%d, 直接监听跳频数据...\n', hop_seed);
+end
+
 %% =========== Main Loop ===========
 rx_diag_count = 0;
+if ~SKIP_HANDSHAKE
+    state = STATE_WAIT_BEACON;
+end
 for idx = 1:100000
     tx_sig = zeros(FB_TX_SAMPLES, 1);
 
@@ -348,20 +382,31 @@ for idx = 1:100000
                 % Only advance slot on successful sync (stay on same slot otherwise)
                 if phy_metrics.sync_success && ~isempty(frame_packets)
                     slot_ptr = slot_ptr + 1;
+                    idle_slot_count = 0;  % reset idle counter on success
+                else
+                    idle_slot_count = idle_slot_count + 1;
                 end
 
-                % Timeout: if no data for 3 seconds, re-send ACK to re-sync with TX
-                if toc(last_sync_time) > 3.0
-                    fprintf('[RX] 3秒无数据, 重发ACK...\n');
-                    tx_sig = hs_ack_wave_full;
-                    radio_tx.CenterFrequency = hs_feedback_freq;
-                    last_sync_time = tic;  % reset timer after sending ACK
-                end
+                if SKIP_HANDSHAKE
+                    % No-handshake mode: stop when idle for too many consecutive slots
+                    if idle_slot_count > MAX_IDLE_SLOTS
+                        fprintf('[RX] 连续%d个时隙无数据, 判定TX已完成, 进入重建...\n', idle_slot_count);
+                        state = STATE_FEC_REBUILD;
+                    end
+                else
+                    % Timeout: if no data for 3 seconds, re-send ACK to re-sync with TX
+                    if toc(last_sync_time) > 3.0
+                        fprintf('[RX] 3秒无数据, 重发ACK...\n');
+                        tx_sig = hs_ack_wave_full;
+                        radio_tx.CenterFrequency = hs_feedback_freq;
+                        last_sync_time = tic;
+                    end
 
-                % Periodic keep-alive (ACK blip on feedback channel)
-                if mod(slot_ptr, TELEMETRY_PERIOD_LOOPS) == 0
-                    tx_sig = hs_ack_wave_full;
-                    radio_tx.CenterFrequency = hs_feedback_freq;
+                    % Periodic keep-alive (ACK blip on feedback channel)
+                    if mod(slot_ptr, TELEMETRY_PERIOD_LOOPS) == 0
+                        tx_sig = hs_ack_wave_full;
+                        radio_tx.CenterFrequency = hs_feedback_freq;
+                    end
                 end
 
             else
@@ -387,18 +432,22 @@ for idx = 1:100000
             state = STATE_RESULT_REPORT;
 
         case STATE_RESULT_REPORT
-            % Send RESULT (frame_type=32) with correct session_id
-            hs_result_wave = build_ctrl_wave_hs(session_id, 32, hs_head_fb, ...
-                hs_pn_fb, hs_scr_seq, hs_cfgLDPCEnc, hs_crcgenerator, ...
-                hs_qpskmod, hs_txfilter, hs_sps, hs_sf);
-            tx_sig = hs_result_wave;
-            radio_tx.CenterFrequency = hs_feedback_freq;
-
             metrics = compute_rx_metrics(phy_metrics, frame_cache, rebuild_info, toc(data_start_time));
             fprintf('[RX-RESULT] %s\n', metrics.summary);
 
-            if idx > 100  % Send for a while, then done
-                state = STATE_DONE;
+            if SKIP_HANDSHAKE
+                state = STATE_DONE;  % no feedback channel, go directly to done
+            else
+                % Send RESULT (frame_type=32) with correct session_id
+                hs_result_wave = build_ctrl_wave_hs(session_id, 32, hs_head_fb, ...
+                    hs_pn_fb, hs_scr_seq, hs_cfgLDPCEnc, hs_crcgenerator, ...
+                    hs_qpskmod, hs_txfilter, hs_sps, hs_sf);
+                tx_sig = hs_result_wave;
+                radio_tx.CenterFrequency = hs_feedback_freq;
+
+                if idx > 100  % Send for a while, then done
+                    state = STATE_DONE;
+                end
             end
 
         case STATE_DONE

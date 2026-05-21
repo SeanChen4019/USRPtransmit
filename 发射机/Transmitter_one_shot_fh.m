@@ -19,10 +19,19 @@ Anti_Jamming_Mode = 0;    % 0=QPSK, 1=BPSK+spreading
 Power_gain = 30;   % OTA: increased for over-the-air
 Power = 1.0;
 
+% ---- Handshake Mode ----
+SKIP_HANDSHAKE = true;     % true=跳过握手直接跳频传输
+FIXED_HOP_SEED = 12345;    % 无握手模式下的固定跳频种子
+TX_START_DELAY = 3;        % 无握手模式下TX启动前等待秒数(给RX准备时间)
+
 fec_k = defs.fec_k_default;  % 24
 fec_r = defs.fec_r_default;  % 8
 
-hop_seed = randi(65535);
+if SKIP_HANDSHAKE
+    hop_seed = FIXED_HOP_SEED;
+else
+    hop_seed = randi(65535);
+end
 
 %% =========== State Machine Constants ===========
 STATE_INIT           = 0;
@@ -237,14 +246,20 @@ tx_ui.post_period = 10;
 tx_ui.ctrl_period = 20;
 tx_ui.timeout = 0.03;
 
-state = STATE_WAIT_READY;
+if SKIP_HANDSHAKE
+    fprintf('[TX] 跳过握手模式, hop_seed=%d, %d秒后开始跳频传输...\n', hop_seed, TX_START_DELAY);
+    pause(TX_START_DELAY);
+    state = STATE_DATA_ONCE;
+    slot_ptr = 1;
+    t0_data = tic;
+else
+    state = STATE_WAIT_READY;
+    fprintf('[TX] 进入等待就绪状态, 在%.2f GHz发送BEACON\n', hs_anchor_freq/1e9);
+end
 beacon_count = 0;
 start_count = 0;
 end_count = 0;
-slot_ptr = 1;
 tx_duration = 0;
-
-fprintf('[TX] 进入等待就绪状态, 在%.2f GHz发送BEACON\n', hs_anchor_freq/1e9);
 
 %% =========== Main Loop ===========
 for idx = 1:100000
@@ -294,7 +309,11 @@ for idx = 1:100000
             else
                 tx_duration = toc(t0_data);
                 fprintf('[TX-DATA] 所有时隙已发送, 耗时=%.2f 秒\n', tx_duration);
-                state = STATE_END_LISTEN;
+                if SKIP_HANDSHAKE
+                    state = STATE_DONE;
+                else
+                    state = STATE_END_LISTEN;
+                end
             end
 
         case STATE_END_LISTEN
