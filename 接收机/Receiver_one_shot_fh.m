@@ -108,6 +108,7 @@ feedback_seq = 0;
 ready_discovery_count = 0;
 slot_ptr = 1;
 last_sync_time = 0;
+ack_burst_remaining = 0;
 phy_metrics = [];  % store latest physical metrics
 
 %% =========== SDR Initialization ===========
@@ -212,6 +213,7 @@ for idx = 1:100000
                 state = STATE_READY_SENT;
                 slot_ptr = 1;
                 ready_discovery_count = 0;
+                ack_burst_remaining = 5;  % send ACK bursts to ensure TX receives it
             elseif ctrl_valid && ctrl_data.frame_type == 41  % START (direct, beacon skipped)
                 session_id = ctrl_data.session_id;
                 hop_seed = ctrl_data.hop_seed;
@@ -293,8 +295,14 @@ for idx = 1:100000
                 radio_rx.SamplesPerFrame = BUS_RX_SAMPLES;
             end
 
-            % Re-send ACK periodically (keep alive with TX)
-            if mod(idx, 5) == 0
+            % Re-send ACK: burst mode first, then periodic keep-alive
+            if ack_burst_remaining > 0
+                % Burst phase: send ACK every iteration to ensure TX receives it
+                tx_sig = hs_ack_wave_full;
+                radio_tx.CenterFrequency = hs_feedback_freq;
+                ack_burst_remaining = ack_burst_remaining - 1;
+            elseif mod(idx, 5) == 0
+                % Periodic keep-alive after burst ends
                 tx_sig = hs_ack_wave_full;
                 radio_tx.CenterFrequency = hs_feedback_freq;
             end
