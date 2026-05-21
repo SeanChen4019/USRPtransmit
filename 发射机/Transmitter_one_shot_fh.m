@@ -244,7 +244,20 @@ end_count = 0;
 slot_ptr = 1;
 tx_duration = 0;
 
-fprintf('[TX] 进入等待就绪状态, 在%.2f GHz发送BEACON\n', hs_anchor_freq/1e9);
+%% =========== Synchronized Start ===========
+t_now = datetime('now');
+sec_current = second(t_now);
+sec_target = ceil(sec_current / 5) * 5;  % next 5-second boundary
+if sec_target - sec_current < 1
+    sec_target = sec_target + 5;
+end
+wait_secs = sec_target - sec_current;
+fprintf('[SYNC] 当前时间: %s\n', datestr(t_now, 'HH:MM:SS.FFF'));
+fprintf('[SYNC] 预定开始: %s (%.1f秒后)\n', ...
+    datestr(t_now + seconds(wait_secs), 'HH:MM:SS'), wait_secs);
+fprintf('[SYNC] 等待中... 请确保RX也在同步等待\n');
+pause(wait_secs);
+fprintf('[SYNC] 开始! 进入等待就绪状态, 在%.2f GHz发送BEACON\n', hs_anchor_freq/1e9);
 
 %% =========== Main Loop ===========
 for idx = 1:100000

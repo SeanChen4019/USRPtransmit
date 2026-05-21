@@ -170,6 +170,21 @@ rx_ui.ctrl_period = 20;
 rx_ui.timeout = 0.03;
 
 
+%% =========== Synchronized Start ===========
+t_now = datetime('now');
+sec_current = second(t_now);
+sec_target = ceil(sec_current / 5) * 5;  % next 5-second boundary
+if sec_target - sec_current < 1
+    sec_target = sec_target + 5;
+end
+wait_secs = sec_target - sec_current;
+fprintf('[SYNC] 当前时间: %s\n', datestr(t_now, 'HH:MM:SS.FFF'));
+fprintf('[SYNC] 预定开始: %s (%.1f秒后)\n', ...
+    datestr(t_now + seconds(wait_secs), 'HH:MM:SS'), wait_secs);
+fprintf('[SYNC] 等待中... 请确保TX也在同步等待\n');
+pause(wait_secs);
+fprintf('[SYNC] 开始! 进入WAIT_BEACON监听状态\n');
+
 %% =========== Main Loop ===========
 rx_diag_count = 0;
 for idx = 1:100000
