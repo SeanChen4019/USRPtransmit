@@ -272,6 +272,7 @@ for idx = 1:100000
             if countdown_remaining <= 0
                 state = STATE_DATA_ONCE;
                 slot_ptr = 1;
+                t0_data = tic;  % start data-phase timer
                 fprintf('[TX] Countdown done, starting DATA_ONCE...\n');
             end
 
@@ -371,10 +372,6 @@ for idx = 1:100000
         break;
     end
 
-    % State transitions
-    if state == STATE_DATA_ONCE && slot_ptr == 1
-        t0_data = tic;
-    end
 end
 
 release(radio_rx);
