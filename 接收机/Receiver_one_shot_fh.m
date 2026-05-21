@@ -11,7 +11,7 @@ fprintf('\n========== 单次跳频接收机 ==========\n');
 defs = link_phy_defs();
 
 Anti_Jamming_Mode = 0;  % 0=QPSK, 1=BPSK+spreading
-Threshold = 240;
+Threshold = 180;  % data slot preamble detection threshold
 Threshold_FB = 220;
 BUS_RX_SAMPLES = defs.slot_len_samples;
 FB_TX_SAMPLES = 80000;
@@ -152,6 +152,12 @@ radio_rx.Gain = 30;
 
 cleanupObj = onCleanup(@() safe_release(radio_tx, radio_rx));
 disp('[RX-HW] USRP就绪.');
+
+% Data slot RRC receive filter (created once, shared across all slots)
+data_rxfilter = comm.RaisedCosineReceiveFilter( ...
+    'InputSamplesPerSymbol', 4, ...
+    'DecimationFactor', 1, ...
+    'RolloffFactor', 0.25);
 
 %% =========== UI Configuration ===========
 rx_ui.enable = true;
@@ -302,7 +308,7 @@ for idx = 1:100000
                 end
 
                 % Detect and decode codewords in this slot
-                [detections, phy_metrics] = detect_hop_slot(rx_sig, Anti_Jamming_Mode, Threshold);
+                [detections, phy_metrics] = detect_hop_slot(rx_sig, Anti_Jamming_Mode, Threshold, data_rxfilter);
 
                 if phy_metrics.sync_success
                     [frame_packets, ~] = decode_forward_codewords_v2(rx_sig, detections, Anti_Jamming_Mode, rx_sig);

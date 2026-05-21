@@ -60,5 +60,5 @@ for slot_id = 1:total_slots
     slot_cache(end).num_frames = num_in_slot;
 end
 
-fprintf('[SLOT-CACHE] total_slots=%d | codewords_per_slot=%d\n', total_slots, codewords_per_slot);
+fprintf('[SLOT-CACHE] 总时隙=%d | 每时隙码字=%d\n', total_slots, codewords_per_slot);
 end

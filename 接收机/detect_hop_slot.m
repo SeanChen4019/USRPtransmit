@@ -1,10 +1,11 @@
-function [detections, phy_metrics] = detect_hop_slot(rx_slot, mode, Threshold)
+function [detections, phy_metrics] = detect_hop_slot(rx_slot, mode, Threshold, rxfilter)
 % DETECT_HOP_SLOT Preamble correlation and slot synchronization for one hop slot
-%   [detections, phy_metrics] = detect_hop_slot(rx_slot, mode, Threshold)
+%   [detections, phy_metrics] = detect_hop_slot(rx_slot, mode, Threshold, rxfilter)
 %
 %   rx_slot: complex baseband samples of one hop slot
 %   mode: 0=QPSK, 1=BPSK+spreading
 %   Threshold: sync peak threshold
+%   rxfilter: RRC receive filter (created once externally)
 %
 %   Returns:
 %     detections: struct array with fields .start_idx, .phase_est
@@ -12,11 +13,6 @@ function [detections, phy_metrics] = detect_hop_slot(rx_slot, mode, Threshold)
 
 defs = link_phy_defs();
 sps = 4;
-
-rxfilter = comm.RaisedCosineReceiveFilter( ...
-    'InputSamplesPerSymbol', sps, ...
-    'DecimationFactor', 1, ...
-    'RolloffFactor', 0.25);
 
 if mode == 1
     sf = 15;
@@ -57,6 +53,13 @@ phy_metrics.snr_est = 0;
 phy_metrics.sync_success = false;
 
 if all(index_val == 0)
+    % Diagnostic: report max correlation for each phase
+    max_corr = zeros(1, sps);
+    for i = 1:sps
+        max_corr(i) = max(buffer_h(:, i));
+    end
+    fprintf('[RX-DETECT] 无同步 | 最大相关值=[%.1f, %.1f, %.1f, %.1f] | 阈值=%d\n', ...
+        max_corr(1), max_corr(2), max_corr(3), max_corr(4), Threshold);
     return;
 end
 

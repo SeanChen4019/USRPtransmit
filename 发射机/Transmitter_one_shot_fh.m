@@ -311,9 +311,9 @@ for idx = 1:100000
     end
 
     % ---- Transmit and Listen ----
-    % Scale: 0.5 for OFDM data slots (high PAPR), 1.0 for handshake (BPSK)
+    % Scale: 0.8 for OFDM data slots (high PAPR), 1.0 for handshake (BPSK)
     if use_bus_slot
-        tx_sig = sqrt(Power) * 0.5 * tx_sig;
+        tx_sig = sqrt(Power) * 0.8 * tx_sig;
     else
         tx_sig = sqrt(Power) * tx_sig;
     end

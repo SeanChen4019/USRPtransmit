@@ -9,11 +9,7 @@ function cache = rx_frame_cache_update(cache, frame_packets, session_id)
 %     .meta_received: logical, whether META frames fully received
 %     .meta_payload: accumulated META bytes
 
-if isempty(frame_packets)
-    return;
-end
-
-% Initialize cache on first use
+% Initialize cache on first use (must happen even when frame_packets is empty)
 if ~isfield(cache, 'session_id') || isempty(cache.session_id)
     cache.session_id = session_id;
     cache.total_frame_num = 0;
@@ -22,6 +18,10 @@ if ~isfield(cache, 'session_id') || isempty(cache.session_id)
     cache.meta_received = false;
     cache.meta_payload = [];
     cache.fec_info = struct();
+end
+
+if isempty(frame_packets)
+    return;
 end
 
 defs = link_phy_defs();
