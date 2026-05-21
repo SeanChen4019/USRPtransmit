@@ -290,6 +290,13 @@ for idx = 1:100000
                 % Generate hop sequence
                 hop_seq = build_hop_sequence(hop_seed, total_slots, defs.num_carriers);
 
+                % Debug: print first 5 hop frequencies
+                hop_freqs_str = '';
+                for hi = 1:min(5, total_slots)
+                    hop_freqs_str = [hop_freqs_str sprintf('%.1f ', defs.Carrier_set(hop_seq(hi))/1e9)];
+                end
+                fprintf('[RX] 跳频序列(前5): %s| hop_seed=%d\n', hop_freqs_str, hop_seed);
+
                 % Initialize frame cache
                 frame_cache = struct();
                 frame_cache = rx_frame_cache_update(frame_cache, [], session_id);

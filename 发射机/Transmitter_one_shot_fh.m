@@ -87,8 +87,13 @@ slot_cache = build_hop_slot_waveform(tx_cache, fec_info);
 total_slots = fec_info.total_slots;
 session_id = fec_info.session_id;
 
-fprintf('[TX-INIT] 就绪: 会话=%d | 时隙=%d | 载波集=%d 个频率\n', ...
-    session_id, total_slots, defs.num_carriers);
+% Debug: print first 5 hop frequencies
+hop_freqs_str = '';
+for hi = 1:min(5, total_slots)
+    hop_freqs_str = [hop_freqs_str sprintf('%.1f ', defs.Carrier_set(fec_info.hop_seq(hi))/1e9)];
+end
+fprintf('[TX-INIT] 就绪: 会话=%d | 时隙=%d | 跳频(前5)=%s| hop_seed=%d\n', ...
+    session_id, total_slots, hop_freqs_str, meta_info.hop_seed);
 
 %% =========== BPSK Handshake PHY Setup (from proven handshake_tx.m) ===========
 fprintf('[TX-HS] 正在设置BPSK握手物理层...\n');
@@ -297,14 +302,18 @@ for idx = 1:100000
                 tx_sig = slot.waveform;
                 radio_tx.CenterFrequency = defs.Carrier_set(slot.carrier_index);
                 use_bus_slot = true;
-                slot_ptr = slot_ptr + 1;
-
-                if mod(slot_ptr, 5) == 0 || slot_ptr > total_slots
-                    fprintf('[TX-DATA] 时隙 %d/%d | 频率=%.1f GHz | 帧数=%d\n', ...
-                        slot_ptr-1, total_slots, ...
-                        defs.Carrier_set(slot.carrier_index)/1e9, slot.num_frames);
+                % Print first slot and every 5th slot
+                if slot_ptr == 1 || mod(slot_ptr, 5) == 0 || slot_ptr == total_slots
+                    fprintf('[TX-DATA] 时隙 %d/%d | 频率=%.1f GHz | hop_idx=%d | 帧数=%d\n', ...
+                        slot_ptr, total_slots, ...
+                        defs.Carrier_set(slot.carrier_index)/1e9, ...
+                        slot.carrier_index, slot.num_frames);
                 end
+                slot_ptr = slot_ptr + 1;
             else
+                % Wait for USRP to finish transmitting last slot before measuring
+                slot_dur = BUS_SLOT_SAMPLES / (200e6/512);
+                pause(slot_dur);
                 tx_duration = toc(t0_data);
                 fprintf('[TX-DATA] 所有时隙已发送, 耗时=%.2f 秒\n', tx_duration);
                 state = STATE_END_LISTEN;
@@ -334,8 +343,10 @@ for idx = 1:100000
 
     try
         if use_bus_slot
-            % DATA_ONCE: transmit hop slot waveform
+            % DATA_ONCE: radio_tx是非阻塞的, USRP实际发送一帧需~0.41s
+            % 必须等USRP发完再发下一时隙，否则缓冲区溢出
             radio_tx(tx_sig);
+            pause(0.25);
         elseif state == STATE_WAIT_READY || state == STATE_START_COUNTDOWN || state == STATE_END_LISTEN
             % Handshake states: TX actual signal directly (no padding), like proven handshake_tx.m
             if max(abs(tx_sig)) > 0
