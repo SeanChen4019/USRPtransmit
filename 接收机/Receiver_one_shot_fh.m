@@ -467,7 +467,23 @@ for i = 1:sps
     end
 end
 
-if all(index_val == 0), return; end
+if all(index_val == 0)
+    % Diagnostic: print max correlation when preamble not found
+    persistent diag_ctrl_count;
+    if isempty(diag_ctrl_count), diag_ctrl_count = 0; end
+    diag_ctrl_count = diag_ctrl_count + 1;
+    if mod(diag_ctrl_count, 10) == 0
+        max_corr = zeros(1, sps);
+        for k = 1:sps
+            if ~isempty(buffer_h)
+                max_corr(k) = max(buffer_h(:, k));
+            end
+        end
+        fprintf('[RX-CTRL] 无前导 | 最大相关=[%.1f, %.1f, %.1f, %.1f] | 阈值=%d\n', ...
+            max_corr(1), max_corr(2), max_corr(3), max_corr(4), Threshold);
+    end
+    return;
+end
 
 [~, op_index] = max(index_val);
 Rec_sig_afr_temp = data_sys(:, op_index);
@@ -504,6 +520,8 @@ for j = 1:min(1, length(idx_start))
         ctrl_data.user_id    = bits2int_hs(data_rec(offset+1:offset+8)); offset = offset+8;
         ctrl_data.frame_type = bits2int_hs(data_rec(offset+1:offset+8)); offset = offset+8;
         ctrl_data.session_id = bits2int_hs(data_rec(offset+1:offset+16));
+        fprintf('[RX-CTRL] 解码成功(短格式): 类型=%d | 会话=%d | 相关=%.1f\n', ...
+            ctrl_data.frame_type, ctrl_data.session_id, index_val(op_index));
         valid = true;
         return;
     end
@@ -526,6 +544,9 @@ for j = 1:min(1, length(idx_start))
         return;
     end
 end
+% Preamble found but CRC failed on all candidates
+fprintf('[RX-CTRL] 前导找到(相关峰值=%.1f)但CRC校验失败 | 信号rms=%.4f pk=%.4f\n', ...
+    index_val(op_index), rms(rx_sig), max(abs(rx_sig)));
 end
 
 %% =========== Handshake Helper Functions ===========
