@@ -89,12 +89,125 @@ session_id = fec_info.session_id;
 fprintf('[TX-INIT] Ready: session=%d | slots=%d | carrier_set=%d freqs\n', ...
     session_id, total_slots, defs.num_carriers);
 
+%% =========== BPSK Handshake PHY Setup (from proven handshake_tx.m) ===========
+fprintf('[TX-HS] Setting up BPSK handshake PHY...\n');
+hs_sps = 4;
+hs_sf = 15;
+hs_M = 2;
+
+pcmatrix = ldpcQuasiCyclicMatrix(defs.blockSize, defs.P);
+hs_cfgLDPCEnc = ldpcEncoderConfig(pcmatrix);
+hs_cfgLDPCDec = ldpcDecoderConfig(pcmatrix);
+hs_crcgenerator = comm.CRCGenerator(defs.poly);
+hs_crcdetector = comm.CRCDetector(defs.poly);
+
+hs_qpskmod = comm.PSKModulator(hs_M, 'BitInput', true);
+hs_qpskmod.PhaseOffset = pi/4;
+hs_qpskdemod = comm.PSKDemodulator(hs_M, 'BitOutput', true, ...
+    'DecisionMethod', 'Approximate log-likelihood ratio');
+hs_qpskdemod.PhaseOffset = pi/4;
+hs_txfilter = comm.RaisedCosineTransmitFilter('OutputSamplesPerSymbol', hs_sps, 'RolloffFactor', 0.25);
+hs_rxfilter = comm.RaisedCosineReceiveFilter('InputSamplesPerSymbol', hs_sps, 'DecimationFactor', 1, 'RolloffFactor', 0.25);
+
+hs_head_fb = [-1,-1,-1,-1,-1,-1,-1,-1,-1,1,-1,-1,-1,-1,-1,-1,1,-1,-1,1,-1,-1,-1,1,-1,-1,-1,-1,-1,1,1,-1,-1,1,-1,-1,1,1,-1,1,-1,-1,-1,-1,1,-1,-1,1,-1,1,-1,1,-1,-1,-1,-1,1,1,1,1,-1,1,-1,1,1,1,-1,1,-1,1,1,-1,1,1,-1,1,1,-1,-1,-1,-1,-1,-1,-1,-1,1,1,-1,-1,-1,-1,-1,1,1,-1,1,1,-1,-1,1,1,-1,-1,-1,-1,1,-1,1,-1,1,1,-1,1,-1,1,1,1,-1,-1,-1,1,1,-1,1,1,1,1,1,1,-1,-1,-1,1,-1,-1,-1,1,1,1,1,-1,-1,1,1,1,1,-1,1,1,-1,1,1,-1,1,-1,-1,-1,-1,-1,-1,-1,1,-1,1,-1,-1,-1,-1,1,-1,1,1,-1,1,-1,1,-1,1,-1,-1,-1,1,1,1,1,1,-1,1,1,1,1,-1,-1,1,-1,-1,1,-1,1,1,-1,-1,-1,-1,-1,1,-1,-1,1,1,-1,-1,1,-1,-1,-1,1,-1,1,-1,-1,-1,1,1,-1,1,1,-1,1,1,1,-1,-1,-1,-1,-1,-1,1,1,1,1,-1,-1,-1,1,1,1,-1,1,1,1,1,1,1,1,-1,-1,1,-1,-1,-1,-1,1,1,-1,-1,-1,1,-1,1,1,-1,1,1,1,-1,1,-1,-1,-1,-1,1,1,-1,1,-1,1,-1,1,1,-1,-1,1,1,1,1,-1,-1,1,-1,1,1,-1,1,1,-1,-1,1,-1,-1,-1,-1,-1,1,-1,-1,-1,1,-1,-1,1,-1,-1,1,1,-1,-1,-1,-1,-1,-1,1,-1,1,1,-1,-1,-1,1,-1,1,-1,-1,1,1,1,-1,1,1,-1,-1,1,1,1,-1,-1,-1,1,-1,1,1,1,1,1,1,-1,1,-1,1,-1,-1,-1,1,-1,1,1,1,-1,1,1,-1,1,-1,1,1,-1,-1,-1,-1,1,1,-1,-1,1,1,-1,1,1,-1,1,-1,1,-1,-1,-1,-1,-1,1,1,1,-1,1,-1,-1,1,1,1,1,-1,1,-1,-1,1,1,-1,1,-1,1,-1,-1,1,-1,-1,1,1,1,-1,-1,-1,-1,-1,1,1,1,1,1,-1,-1,1,1,1,-1,-1,1,1,-1,1,1,1,1,-1,1,-1,-1,-1,1,-1,1,-1,1,-1,1,1,-1,1,1,1,1,1,-1,-1,-1,-1,1,-1,-1,1,1,1,-1,1,-1,-1,-1,1,1,1,-1,1,-1,1,1,1,1,1,-1,1,1,-1,1,-1,-1,1,-1,-1,-1,-1,1,-1,-1,-1,-1,1,-1,1,-1,-1,1,-1,1,-1,1,1,-1,-1,-1,1,1,1,-1,-1,1,1,1,1,1,1,1,-1,1,1,-1,-1,-1,-1,1,-1,-1,-1,1,1,-1,1,-1,-1,1,1,1,-1,-1,1,-1,-1,1,1,1,1,-1,-1,-1,-1,1,1,-1,1,1,1,-1,1,1,-1,-1,-1,1,1,-1,-1,-1,1,1,1,1,-1,1,1,1,1,1,-1,1,-1,-1,1,-1,-1,1,-1,1,-1,-1,-1,-1,-1,-1,1,1,-1,1,-1,-1,-1,1,1,-1,-1,1,-1,1,1,1,-1,1,-1,-1,1,-1,1,1,-1,1,-1,-1,-1,1,-1,-1,-1,1,-1,1,1,-1,-1,1,1,-1,1,-1,-1,1,-1,1,-1,-1,1,-1,-1,-1,1,1,-1,-1,-1,-1,1,1,1,-1,1,1,-1,1,1,1,1,-1,-1,-1,-1,-1,1,-1,1,1,1,-1,-1,1,-1,1,-1,1,1,1,-1,-1,1,1,1,-1,1,1,1,-1,1,1,1,-1,-1,1,1,-1,-1,1,1,1,-1,1,-1,1,-1,1,1,1,-1,1,1,1,1,-1,1,1,-1,-1,1,-1,1,-1,-1,-1,1,-1,-1,1,1,-1,1,1,-1,-1,-1,1,-1,-1,-1,-1,1,1,1,-1,-1,1,-1,1,1,1,1,1,-1,-1,1,-1,1,-1,-1,1,1,-1,-1,1,1,-1,-1,1,-1,1,-1,1,-1,1,-1,-1,1,1,1,1,1,1,-1,-1,1,1,-1,-1,-1,1,1,-1,1,-1,1,1,1,1,-1,-1,1,1,-1,1,-1,1,1,-1,1,-1,-1,1,1,-1,-1,-1,1,-1,-1,1,-1,1,1,1,-1,-1,-1,-1,1,-1,1,1,1,1,-1,1,-1,1,-1,1,-1,1,-1,1,1,1,1,1,1,1,1,-1,1,-1,-1,-1,-1,-1,1,-1,1,-1,1,-1,-1,1,-1,1,1,1,1,-1,-1,-1,1,-1,1,-1,1,1,1,1,-1,1,1,1,-1,1,-1,1,-1,-1,1,1,-1,1,1,1,-1,-1,1,-1,-1,-1,1,1,1,-1,-1,-1,1,1,1,1,1,1,1,1,1,1,-1,-1,-1,-1,-1,-1,-1,1,1,1,-1,-1,-1,-1,1,1,1,1,1,1,-1,1,1,1,-1,-1,-1,1,-1,-1,1,1,1,1,1,-1,-1,-1,1,1,-1,-1,1,1,1,1,1,-1,1,-1,1,1,-1,-1,1,-1,1,1,-1,-1,1,-1,-1,1,-1,-1,1]';
+hs_pn_fb = [1,-1,-1,-1,1,1,1,1,-1,1,-1,1,1,-1,-1]';
+hs_scr_seq = [1 1 0 1 1 0 1 0 0 1 0 0 0 0 1 0 1 0 1 1 1 0 1 1 0 0 0]';
+
+hs_Frame_head = [1;1;1;0;1;0;1;0];
+hs_Usr_ID = [0;0;0;0;0;1;0;1];
+hs_Frame_type_beacon = double(dec2bin(100, 8) == '1')';
+hs_Frame_type_start  = double(dec2bin(41, 8) == '1')';
+hs_Frame_type_end    = double(dec2bin(42, 8) == '1')';
+hs_Session_ID = double(dec2bin(session_id, 16) == '1')';
+
+%% Pre-build BEACON waveform (BPSK+spreading, same as proven handshake)
+fprintf('[TX-HS] Building BEACON waveform...\n');
+hs_payload_beacon = [hs_Frame_head; hs_Usr_ID; hs_Frame_type_beacon; hs_Session_ID];
+hs_enc_beacon = hs_crcgenerator(hs_payload_beacon);
+hs_pad_len = 486 - length(hs_enc_beacon);
+hs_payload_frame_beacon = [hs_enc_beacon; zeros(hs_pad_len, 1)];
+
+hs_scr_beacon = scramble_bits_hs(hs_payload_frame_beacon, hs_scr_seq);
+hs_enc_bits_beacon = ldpcEncode(hs_scr_beacon, hs_cfgLDPCEnc);
+hs_inter_matrix_beacon = reshape(hs_enc_bits_beacon, 36, 18).';
+hs_inter_bits_beacon = hs_inter_matrix_beacon(:);
+
+hs_inter_polar_beacon = 2*hs_inter_bits_beacon - 1;
+hs_spread_beacon = zeros(length(hs_inter_polar_beacon)*hs_sf, 1);
+for ii = 1:length(hs_inter_polar_beacon)
+    hs_spread_beacon((ii-1)*hs_sf+1 : ii*hs_sf) = hs_inter_polar_beacon(ii) * hs_pn_fb;
+end
+hs_mod_beacon = hs_qpskmod(0.5*(hs_spread_beacon + 1));
+hs_tx_in_beacon = [hs_head_fb; hs_mod_beacon; zeros(hs_sps*10, 1)];
+hs_beacon_wave_full = hs_txfilter(hs_tx_in_beacon);
+hs_beacon_wave_full = [zeros(2000, 1); hs_beacon_wave_full];
+fprintf('[TX-HS] BEACON waveform: %d samples (%.2f ms)\n', ...
+    length(hs_beacon_wave_full), length(hs_beacon_wave_full)/200e6*512*1000);
+
+%% Pre-build START control waveform (carries hop_seed, total_slots, etc.)
+fprintf('[TX-HS] Building START waveform...\n');
+hs_start_info_bits = [ ...
+    int_to_bits_hs(meta_info.hop_seed, 32); ...
+    int_to_bits_hs(total_slots, 16); ...
+    int_to_bits_hs(meta_info.slot_len_samples, 32); ...
+    int_to_bits_hs(fec_info.codewords_per_slot, 16); ...
+    int_to_bits_hs(meta_info.fec_k, 8); ...
+    int_to_bits_hs(meta_info.fec_r, 8)];
+
+hs_payload_start = [hs_Frame_head; hs_Usr_ID; hs_Frame_type_start; hs_Session_ID; hs_start_info_bits];
+hs_enc_start = hs_crcgenerator(hs_payload_start);
+hs_pad_len_start = 486 - length(hs_enc_start);
+hs_payload_frame_start = [hs_enc_start; zeros(hs_pad_len_start, 1)];
+
+hs_scr_start = scramble_bits_hs(hs_payload_frame_start, hs_scr_seq);
+hs_enc_bits_start = ldpcEncode(hs_scr_start, hs_cfgLDPCEnc);
+hs_inter_matrix_start = reshape(hs_enc_bits_start, 36, 18).';
+hs_inter_bits_start = hs_inter_matrix_start(:);
+
+hs_inter_polar_start = 2*hs_inter_bits_start - 1;
+hs_spread_start = zeros(length(hs_inter_polar_start)*hs_sf, 1);
+for ii = 1:length(hs_inter_polar_start)
+    hs_spread_start((ii-1)*hs_sf+1 : ii*hs_sf) = hs_inter_polar_start(ii) * hs_pn_fb;
+end
+hs_mod_start = hs_qpskmod(0.5*(hs_spread_start + 1));
+hs_tx_in_start = [hs_head_fb; hs_mod_start; zeros(hs_sps*10, 1)];
+hs_start_wave_full = hs_txfilter(hs_tx_in_start);
+hs_start_wave_full = [zeros(2000, 1); hs_start_wave_full];
+fprintf('[TX-HS] START waveform: %d samples (%.2f ms)\n', ...
+    length(hs_start_wave_full), length(hs_start_wave_full)/200e6*512*1000);
+
+%% Pre-build END waveform
+hs_payload_end = [hs_Frame_head; hs_Usr_ID; hs_Frame_type_end; hs_Session_ID; ...
+    zeros(112, 1)];  % same structure as START, padded with zeros
+hs_enc_end = hs_crcgenerator(hs_payload_end);
+hs_pad_len_end = 486 - length(hs_enc_end);
+hs_payload_frame_end = [hs_enc_end; zeros(hs_pad_len_end, 1)];
+
+hs_scr_end = scramble_bits_hs(hs_payload_frame_end, hs_scr_seq);
+hs_enc_bits_end = ldpcEncode(hs_scr_end, hs_cfgLDPCEnc);
+hs_inter_matrix_end = reshape(hs_enc_bits_end, 36, 18).';
+hs_inter_bits_end = hs_inter_matrix_end(:);
+
+hs_inter_polar_end = 2*hs_inter_bits_end - 1;
+hs_spread_end = zeros(length(hs_inter_polar_end)*hs_sf, 1);
+for ii = 1:length(hs_inter_polar_end)
+    hs_spread_end((ii-1)*hs_sf+1 : ii*hs_sf) = hs_inter_polar_end(ii) * hs_pn_fb;
+end
+hs_mod_end = hs_qpskmod(0.5*(hs_spread_end + 1));
+hs_tx_in_end = [hs_head_fb; hs_mod_end; zeros(hs_sps*10, 1)];
+hs_end_wave_full = hs_txfilter(hs_tx_in_end);
+hs_end_wave_full = [zeros(2000, 1); hs_end_wave_full];
+
+%% Anchor / feedback frequencies (matching proven handshake)
+hs_anchor_freq = 2.5e9;
+hs_feedback_freq = 1.45e9;
+
 %% =========== SDR Initialization ===========
 fprintf('[TX-HW] Initializing USRP...\n');
 
 radio_tx = comm.SDRuTransmitter('Platform', 'X310', 'IPAddress', '192.168.10.2');
 radio_tx.ChannelMapping = 1;
-radio_tx.CenterFrequency = defs.anchor_freq;
+radio_tx.CenterFrequency = hs_anchor_freq;
 radio_tx.Gain = Power_gain;
 radio_tx.MasterClockRate = 200e6;
 radio_tx.InterpolationFactor = 512;
@@ -108,9 +221,9 @@ radio_rx = comm.SDRuReceiver( ...
     'DecimationFactor', 512, ...
     'SamplesPerFrame', FB_RX_SAMPLES);
 radio_rx.ClockSource = 'External';
-radio_rx.ChannelMapping = 2;
-radio_rx.CenterFrequency = defs.feedback_freq;
-radio_rx.Gain = 28;
+radio_rx.ChannelMapping = 1;
+radio_rx.CenterFrequency = hs_feedback_freq;
+radio_rx.Gain = 30;
 
 cleanupObj = onCleanup(@() safe_release(radio_tx, radio_rx));
 fprintf('[TX-HW] USRP ready.\n');
@@ -126,10 +239,11 @@ tx_ui.timeout = 0.03;
 state = STATE_WAIT_READY;
 beacon_count = 0;
 countdown_remaining = 0;
+end_count = 0;
 slot_ptr = 1;
 tx_duration = 0;
 
-fprintf('[TX] Entering WAIT_READY state, sending BEACON on %.2f GHz\n', defs.anchor_freq/1e9);
+fprintf('[TX] Entering WAIT_READY state, sending BEACON on %.2f GHz\n', hs_anchor_freq/1e9);
 
 %% =========== Main Loop ===========
 for idx = 1:100000
@@ -140,19 +254,19 @@ for idx = 1:100000
     % ---- State Machine ----
     switch state
         case STATE_WAIT_READY
-            % Periodic BEACON on anchor frequency
+            % Periodic BEACON using proven BPSK+spreading handshake
             if mod(beacon_count, BEACON_PERIOD) == 0
-                tx_sig = build_control_frame(session_id, 40, meta_info, fec_info, CONTROL_SAMPLES);  % 40=BEACON
-                radio_tx.CenterFrequency = defs.anchor_freq;
+                tx_sig = hs_beacon_wave_full;
+                radio_tx.CenterFrequency = hs_anchor_freq;
             else
                 tx_sig = zeros(CONTROL_SAMPLES, 1);
             end
             beacon_count = beacon_count + 1;
 
         case STATE_START_COUNTDOWN
-            % Send TX_START control frame with countdown info
-            tx_sig = build_control_frame(session_id, 41, meta_info, fec_info, CONTROL_SAMPLES);  % 41=START
-            radio_tx.CenterFrequency = defs.anchor_freq;
+            % Send TX_START using proven BPSK+spreading, carries hop_seed/slots/etc.
+            tx_sig = hs_start_wave_full;
+            radio_tx.CenterFrequency = hs_anchor_freq;
             countdown_remaining = countdown_remaining - 1;
 
             if countdown_remaining <= 0
@@ -182,9 +296,14 @@ for idx = 1:100000
             end
 
         case STATE_END_LISTEN
-            % Send TX_END and listen for RESULT
-            tx_sig = build_control_frame(session_id, 42, meta_info, fec_info, CONTROL_SAMPLES);  % 42=END
-            radio_tx.CenterFrequency = defs.anchor_freq;
+            % Send TX_END using proven BPSK+spreading, listen for RESULT
+            tx_sig = hs_end_wave_full;
+            radio_tx.CenterFrequency = hs_anchor_freq;
+            end_count = end_count + 1;
+            if end_count > 30
+                fprintf('[TX] END sent %d times, no RESULT, finishing.\n', end_count);
+                state = STATE_DONE;
+            end
 
         case STATE_DONE
             tx_sig = zeros(BUS_SLOT_SAMPLES, 1);
@@ -195,9 +314,15 @@ for idx = 1:100000
 
     try
         if use_bus_slot
+            % DATA_ONCE: transmit hop slot waveform
             radio_tx(tx_sig);
+        elseif state == STATE_WAIT_READY || state == STATE_START_COUNTDOWN || state == STATE_END_LISTEN
+            % Handshake states: TX actual signal directly (no padding), like proven handshake_tx.m
+            if max(abs(tx_sig)) > 0
+                radio_tx(tx_sig);
+            end
         else
-            % For control slots, pad to bus slot size
+            % Other states: pad to bus slot size
             pad_sig = zeros(BUS_SLOT_SAMPLES, 1);
             pad_sig(1:min(length(tx_sig), BUS_SLOT_SAMPLES)) = tx_sig(1:min(length(tx_sig), BUS_SLOT_SAMPLES));
             radio_tx(pad_sig);
@@ -211,22 +336,23 @@ for idx = 1:100000
         continue;
     end
 
-    % ---- Decode Feedback ----
-    [fb_valid, fb_data] = feedback_frame_decode_v2(fb_sig);
+    % ---- Decode Feedback (proven decode_ack from handshake_tx.m) ----
+    [fb_valid, fb_data] = decode_ack_hs(fb_sig, hs_rxfilter, hs_head_fb, hs_pn_fb, ...
+        hs_scr_seq, hs_cfgLDPCDec, hs_crcdetector, hs_qpskdemod, hs_sps, hs_sf);
 
     if fb_valid
-        fprintf('[TX-FB] Got feedback: type=%d | session=%d | SNR=%.1f dB | state=%d\n', ...
-            fb_data.frame_type, fb_data.session_id, fb_data.snr_db, fb_data.rx_state);
+        fprintf('[TX-FB] Got ACK: type=%d | session=%d\n', ...
+            fb_data.frame_type, fb_data.session_id);
 
-        % Handle RX_READY
-        if fb_data.frame_type == defs.FRAME_TYPE_RX_READY && state == STATE_WAIT_READY
-            fprintf('[TX] Received RX_READY, starting countdown...\n');
+        % Handle ACK (frame_type == 101) from handshake
+        if fb_data.frame_type == 101 && state == STATE_WAIT_READY
+            fprintf('[TX] Received ACK, starting countdown...\n');
             state = STATE_START_COUNTDOWN;
             countdown_remaining = START_COUNTDOWN_SLOTS;
         end
 
-        % Handle RX_RESULT
-        if fb_data.frame_type == defs.FRAME_TYPE_RX_RESULT && state == STATE_END_LISTEN
+        % Handle RX_RESULT (frame_type == 32)
+        if fb_data.frame_type == 32 && state == STATE_END_LISTEN
             fprintf('[TX] Received RX_RESULT, transmission complete.\n');
             state = STATE_DONE;
         end
@@ -342,4 +468,108 @@ try
 catch
 end
 disp('SDR resources released.');
+end
+
+%% =========== Handshake Helper Functions (from proven handshake_tx.m) ===========
+
+function [valid, data] = decode_ack_hs(rx_sig, rxfilter, head_fb, pn_fb, ...
+    scr_seq, cfgLDPCDec, crcdetector, qpskdemod, sps, sf)
+% Decode ACK feedback frame using proven BPSK+spreading approach
+valid = false;
+data = struct();
+Threshold = 250;
+maxnumiter = 10;
+
+Rec_sig = rxfilter(complex(rx_sig(:)));
+data_frame_len = 648 / log2(2) * sf;  % = 9720
+
+PN_head = flip(head_fb);
+data_sys = [];
+buffer_h = [];
+index_val = zeros(1, sps);
+index_loc = cell(1, sps);
+loc_num = zeros(1, sps);
+syn_flag = false;
+
+for i = 1:sps
+    data_sys_col = Rec_sig(i:sps:end);
+    data_sys(:, i) = data_sys_col;
+    buffer_h(:, i) = abs(conv(PN_head, sign(data_sys_col)));
+    if max(buffer_h(:, i)) >= Threshold
+        syn_flag = true;
+        above = find(buffer_h(:, i) >= Threshold);
+        index_loc{i} = above;
+        loc_num(i) = length(above);
+        index_val(i) = mean(buffer_h(above, i));
+    end
+end
+
+if ~syn_flag, return; end
+
+[~, op_idx] = max(index_val);
+Rec_sig_afr_temp = data_sys(1:length(data_sys_col), op_idx);
+idx_start_temp = index_loc{op_idx};
+
+idx_start_temp = idx_start_temp(idx_start_temp + data_frame_len <= length(Rec_sig_afr_temp));
+if isempty(idx_start_temp), return; end
+
+for j = 1:length(idx_start_temp)
+    idx_start = idx_start_temp(j);
+
+    train_len = min(511, idx_start);
+    receive_train = Rec_sig_afr_temp(idx_start-train_len+1 : idx_start);
+    desire_seq = head_fb(end-train_len+1 : end);
+    phase_est = -angle(mean(conj(desire_seq) .* receive_train));
+
+    Rec_sig_afr = Rec_sig_afr_temp(idx_start+1 : idx_start+data_frame_len) .* exp(1j*phase_est);
+    demod_sig = qpskdemod(Rec_sig_afr);
+
+    data_desp = zeros(length(demod_sig)/sf, 1);
+    for ii = 1:length(demod_sig)/sf
+        data_desp(ii) = sum(demod_sig((ii-1)*sf+1 : ii*sf) .* pn_fb);
+    end
+
+    deinter_matrix = reshape(data_desp, 18, 36).';
+    deinter_bits = deinter_matrix(:);
+
+    rx_bits = ldpcDecode(deinter_bits, cfgLDPCDec, maxnumiter);
+
+    descr_data = zeros(length(rx_bits), 1);
+    for ii = 1:floor(length(rx_bits)/length(scr_seq))
+        st_ = (ii-1)*length(scr_seq) + 1;
+        ed_ = ii*length(scr_seq);
+        descr_data(st_:ed_) = xor(rx_bits(st_:ed_), scr_seq);
+    end
+
+    % CRC check: Info(40bit) + CRC32 = 72bit, rest is LDPC zero-padding
+    [data_rec, err] = crcdetector(descr_data(1:72));
+    if err ~= 0, continue; end
+
+    offset = 0;
+    data.frame_head = bits2int_hs(data_rec(offset+1:offset+8)); offset = offset+8;
+    data.user_id    = bits2int_hs(data_rec(offset+1:offset+8)); offset = offset+8;
+    data.frame_type = bits2int_hs(data_rec(offset+1:offset+8)); offset = offset+8;
+    data.session_id = bits2int_hs(data_rec(offset+1:offset+16));
+
+    valid = true;
+    return;
+end
+end
+
+function out = scramble_bits_hs(in, scr_seq)
+out = zeros(size(in));
+grp = length(scr_seq);
+for ii = 1:floor(length(in)/grp)
+    st = (ii-1)*grp + 1;
+    ed = ii*grp;
+    out(st:ed) = xor(in(st:ed), scr_seq);
+end
+end
+
+function bits = int_to_bits_hs(v, width)
+bits = double(dec2bin(max(0, v), width) == '1').';
+end
+
+function v = bits2int_hs(bits)
+v = (2.^(length(bits)-1:-1:0)) * bits(:);
 end
