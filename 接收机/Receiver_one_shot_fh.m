@@ -107,6 +107,24 @@ slot_ptr = 1;
 phy_metrics = [];  % store latest physical metrics
 
 %% =========== SDR Initialization ===========
+disp('[RX-HW] Forcing release of any lingering USRP handles...');
+% Force-clear any stuck USRP handles from previous runs
+try
+    old_radios = instrfindall('Type', 'usrp');
+    if ~isempty(old_radios)
+        for r = 1:length(old_radios)
+            try release(old_radios(r)); catch; end
+        end
+    end
+catch
+end
+% Additional safety: clear persistent SDR connections
+try
+    comm.internal.SDRuBase.closeAllSessions();
+catch
+end
+pause(1);  % let hardware fully release
+
 disp('[RX-HW] Initializing USRP...');
 
 radio_tx = comm.SDRuTransmitter('Platform', 'X310', 'IPAddress', '192.168.10.2');
@@ -123,11 +141,11 @@ radio_rx = comm.SDRuReceiver( ...
     'OutputDataType', 'double', ...
     'MasterClockRate', 200e6, ...
     'DecimationFactor', 512, ...
-    'SamplesPerFrame', BUS_RX_SAMPLES);
+    'SamplesPerFrame', CONTROL_RX_SAMPLES);  % start in WAIT_BEACON mode (40k)
 radio_rx.ClockSource = 'External';
 radio_rx.ChannelMapping = 1;
 radio_rx.CenterFrequency = hs_anchor_freq;
-radio_rx.Gain = 30;  % OTA: increased for over-the-air
+radio_rx.Gain = 30;
 
 cleanupObj = onCleanup(@() safe_release(radio_tx, radio_rx));
 disp('[RX-HW] USRP ready.');
@@ -149,21 +167,21 @@ for idx = 1:100000
     % ---- State Machine ----
     switch state
         case STATE_WAIT_BEACON
-            % Listen on anchor frequency for BEACON
+            % Listen on anchor frequency for BEACON (RX already configured for CONTROL_RX_SAMPLES)
             radio_rx.CenterFrequency = hs_anchor_freq;
-            radio_rx.SamplesPerFrame = CONTROL_RX_SAMPLES;
 
             try
                 [rx_sig, ~, rx_overrun] = radio_rx();
                 if rx_overrun, warning('[RX-WARN] Overrun'); end
             catch ME
                 warning('[RX-ERR] HW error: %s', ME.message);
+                pause(0.05);  % brief backoff on error
                 continue;
             end
 
             % Try to decode BEACON using proven BPSK handshake decoder
             rx_diag_count = rx_diag_count + 1;
-            if mod(rx_diag_count, 30) == 0
+            if mod(rx_diag_count, 20) == 0
                 fprintf('[RX-DIAG] #%d | rms=%.4f | pk=%.4f\n', ...
                     rx_diag_count, rms(rx_sig), max(abs(rx_sig)));
             end
@@ -172,7 +190,7 @@ for idx = 1:100000
 
             if ctrl_valid && ctrl_data.frame_type == 100  % BEACON
                 session_id = ctrl_data.session_id;
-                fprintf('[RX] Got BEACON: session=%d\n', session_id);
+                fprintf('[RX] Got BEACON at iter %d: session=%d\n', idx, session_id);
 
                 % Send ACK using proven BPSK waveform (like handshake_rx.m)
                 tx_sig = hs_ack_wave_full;
@@ -199,6 +217,7 @@ for idx = 1:100000
                 state = STATE_FOLLOW_HOP;
                 slot_ptr = 1;
                 data_start_time = tic;
+                % One-time switch to bus RX sample size for data phase
                 release(radio_rx);
                 radio_rx.SamplesPerFrame = BUS_RX_SAMPLES;
             else
@@ -210,21 +229,16 @@ for idx = 1:100000
                 end
             end
 
-            % Reset to bus RX samples for data mode
-            release(radio_rx);
-            radio_rx.SamplesPerFrame = BUS_RX_SAMPLES;
-
         case STATE_READY_SENT
-            % Wait for START on anchor frequency
+            % Wait for START on anchor frequency (RX still at CONTROL_RX_SAMPLES from WAIT_BEACON)
             radio_rx.CenterFrequency = hs_anchor_freq;
-            release(radio_rx);
-            radio_rx.SamplesPerFrame = CONTROL_RX_SAMPLES;
 
             try
                 [rx_sig, ~, rx_overrun] = radio_rx();
                 if rx_overrun, warning('[RX-WARN] Overrun'); end
             catch ME
                 warning('[RX-ERR] HW error: %s', ME.message);
+                pause(0.05);
                 continue;
             end
 
@@ -251,6 +265,7 @@ for idx = 1:100000
                 state = STATE_FOLLOW_HOP;
                 slot_ptr = 1;
                 data_start_time = tic;
+                % One-time switch to bus RX sample size for data phase
                 release(radio_rx);
                 radio_rx.SamplesPerFrame = BUS_RX_SAMPLES;
             end
@@ -260,9 +275,6 @@ for idx = 1:100000
                 tx_sig = hs_ack_wave_full;
                 radio_tx.CenterFrequency = hs_feedback_freq;
             end
-
-            release(radio_rx);
-            radio_rx.SamplesPerFrame = BUS_RX_SAMPLES;
 
         case STATE_FOLLOW_HOP
             % Follow hop sequence, receive slots
