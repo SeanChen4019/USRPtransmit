@@ -29,6 +29,65 @@ STATE_DONE         = 5;
 
 state = STATE_WAIT_BEACON;
 
+%% =========== BPSK Handshake PHY Setup (matching proven handshake_tx.m) ===========
+fprintf('[RX-HS] Setting up BPSK handshake PHY...\n');
+hs_sps = 4;
+hs_sf = 15;
+hs_M = 2;
+
+pcmatrix = ldpcQuasiCyclicMatrix(defs.blockSize, defs.P);
+hs_cfgLDPCEnc = ldpcEncoderConfig(pcmatrix);
+hs_cfgLDPCDec = ldpcDecoderConfig(pcmatrix);
+hs_crcgenerator = comm.CRCGenerator(defs.poly);
+hs_crcdetector = comm.CRCDetector(defs.poly);
+
+hs_qpskmod = comm.PSKModulator(hs_M, 'BitInput', true);
+hs_qpskmod.PhaseOffset = pi/4;
+hs_qpskdemod = comm.PSKDemodulator(hs_M, 'BitOutput', true, ...
+    'DecisionMethod', 'Approximate log-likelihood ratio');
+hs_qpskdemod.PhaseOffset = pi/4;
+hs_txfilter = comm.RaisedCosineTransmitFilter('OutputSamplesPerSymbol', hs_sps, 'RolloffFactor', 0.25);
+hs_rxfilter = comm.RaisedCosineReceiveFilter('InputSamplesPerSymbol', hs_sps, 'DecimationFactor', 1, 'RolloffFactor', 0.25);
+
+hs_head_fb = [-1,-1,-1,-1,-1,-1,-1,-1,-1,1,-1,-1,-1,-1,-1,-1,1,-1,-1,1,-1,-1,-1,1,-1,-1,-1,-1,-1,1,1,-1,-1,1,-1,-1,1,1,-1,1,-1,-1,-1,-1,1,-1,-1,1,-1,1,-1,1,-1,-1,-1,-1,1,1,1,1,-1,1,-1,1,1,1,-1,1,-1,1,1,-1,1,1,-1,1,1,-1,-1,-1,-1,-1,-1,-1,-1,1,1,-1,-1,-1,-1,-1,1,1,-1,1,1,-1,-1,1,1,-1,-1,-1,-1,1,-1,1,-1,1,1,-1,1,-1,1,1,1,-1,-1,-1,1,1,-1,1,1,1,1,1,1,-1,-1,-1,1,-1,-1,-1,1,1,1,1,-1,-1,1,1,1,1,-1,1,1,-1,1,1,-1,1,-1,-1,-1,-1,-1,-1,-1,1,-1,1,-1,-1,-1,-1,1,-1,1,1,-1,1,-1,1,-1,1,-1,-1,-1,1,1,1,1,1,-1,1,1,1,1,-1,-1,1,-1,-1,1,-1,1,1,-1,-1,-1,-1,-1,1,-1,-1,1,1,-1,-1,1,-1,-1,-1,1,-1,1,-1,-1,-1,1,1,-1,1,1,-1,1,1,1,-1,-1,-1,-1,-1,-1,1,1,1,1,-1,-1,-1,1,1,1,-1,1,1,1,1,1,1,1,-1,-1,1,-1,-1,-1,-1,1,1,-1,-1,-1,1,-1,1,1,-1,1,1,1,-1,1,-1,-1,-1,-1,1,1,-1,1,-1,1,-1,1,1,-1,-1,1,1,1,1,-1,-1,1,-1,1,1,-1,1,1,-1,-1,1,-1,-1,-1,-1,-1,1,-1,-1,-1,1,-1,-1,1,-1,-1,1,1,-1,-1,-1,-1,-1,-1,1,-1,1,1,-1,-1,-1,1,-1,1,-1,-1,1,1,1,-1,1,1,-1,-1,1,1,1,-1,-1,-1,1,-1,1,1,1,1,1,1,-1,1,-1,1,-1,-1,-1,1,-1,1,1,1,-1,1,1,-1,1,-1,1,1,-1,-1,-1,-1,1,1,-1,-1,1,1,-1,1,1,-1,1,-1,1,-1,-1,-1,-1,-1,1,1,1,-1,1,-1,-1,1,1,1,1,-1,1,-1,-1,1,1,-1,1,-1,1,-1,-1,1,-1,-1,1,1,1,-1,-1,-1,-1,-1,1,1,1,1,1,-1,-1,1,1,1,-1,-1,1,1,-1,1,1,1,1,-1,1,-1,-1,-1,1,-1,1,-1,1,-1,1,1,-1,1,1,1,1,1,-1,-1,-1,-1,1,-1,-1,1,1,1,-1,1,-1,-1,-1,1,1,1,-1,1,-1,1,1,1,1,1,-1,1,1,-1,1,-1,-1,1,-1,-1,-1,-1,1,-1,-1,-1,-1,1,-1,1,-1,-1,1,-1,1,-1,1,1,-1,-1,-1,1,1,1,-1,-1,1,1,1,1,1,1,1,-1,1,1,-1,-1,-1,-1,1,-1,-1,-1,1,1,-1,1,-1,-1,1,1,1,-1,-1,1,-1,-1,1,1,1,1,-1,-1,-1,-1,1,1,-1,1,1,1,-1,1,1,-1,-1,-1,1,1,-1,-1,-1,1,1,1,1,-1,1,1,1,1,1,-1,1,-1,-1,1,-1,-1,1,-1,1,-1,-1,-1,-1,-1,-1,1,1,-1,1,-1,-1,-1,1,1,-1,-1,1,-1,1,1,1,-1,1,-1,-1,1,-1,1,1,-1,1,-1,-1,-1,1,-1,-1,-1,1,-1,1,1,-1,-1,1,1,-1,1,-1,-1,1,-1,1,-1,-1,1,-1,-1,-1,1,1,-1,-1,-1,-1,1,1,1,-1,1,1,-1,1,1,1,1,-1,-1,-1,-1,-1,1,-1,1,1,1,-1,-1,1,-1,1,-1,1,1,1,-1,-1,1,1,1,-1,1,1,1,-1,1,1,1,-1,-1,1,1,-1,-1,1,1,1,-1,1,-1,1,-1,1,1,1,-1,1,1,1,1,-1,1,1,-1,-1,1,-1,1,-1,-1,-1,1,-1,-1,1,1,-1,1,1,-1,-1,-1,1,-1,-1,-1,-1,1,1,1,-1,-1,1,-1,1,1,1,1,1,-1,-1,1,-1,1,-1,-1,1,1,-1,-1,1,1,-1,-1,1,-1,1,-1,1,-1,1,-1,-1,1,1,1,1,1,1,-1,-1,1,1,-1,-1,-1,1,1,-1,1,-1,1,1,1,1,-1,-1,1,1,-1,1,-1,1,1,-1,1,-1,-1,1,1,-1,-1,-1,1,-1,-1,1,-1,1,1,1,-1,-1,-1,-1,1,-1,1,1,1,1,-1,1,-1,1,-1,1,-1,1,-1,1,1,1,1,1,1,1,1,-1,1,-1,-1,-1,-1,-1,1,-1,1,-1,1,-1,-1,1,-1,1,1,1,1,-1,-1,-1,1,-1,1,-1,1,1,1,1,-1,1,1,1,-1,1,-1,1,-1,-1,1,1,-1,1,1,1,-1,-1,1,-1,-1,-1,1,1,1,-1,-1,-1,1,1,1,1,1,1,1,1,1,1,-1,-1,-1,-1,-1,-1,-1,1,1,1,-1,-1,-1,-1,1,1,1,1,1,1,-1,1,1,1,-1,-1,-1,1,-1,-1,1,1,1,1,1,-1,-1,-1,1,1,-1,-1,1,1,1,1,1,-1,1,-1,1,1,-1,-1,1,-1,1,1,-1,-1,1,-1,-1,1,-1,-1,1]';
+hs_pn_fb = [1,-1,-1,-1,1,1,1,1,-1,1,-1,1,1,-1,-1]';
+hs_scr_seq = [1 1 0 1 1 0 1 0 0 1 0 0 0 0 1 0 1 0 1 1 1 0 1 1 0 0 0]';
+
+hs_Frame_head = [1;1;1;0;1;0;1;0];
+hs_Usr_ID = [0;0;0;0;0;1;0;1];
+hs_Frame_type_ack    = double(dec2bin(101, 8) == '1')';
+hs_Frame_type_ready  = double(dec2bin(30, 8) == '1')';
+hs_Frame_type_telem  = double(dec2bin(31, 8) == '1')';
+hs_Frame_type_result = double(dec2bin(32, 8) == '1')';
+
+%% Pre-build ACK waveform (BPSK+spreading, same as proven handshake)
+fprintf('[RX-HS] Building ACK waveform...\n');
+hs_payload_ack = [hs_Frame_head; hs_Usr_ID; hs_Frame_type_ack; zeros(16, 1)];  % session_id=0 placeholder
+hs_enc_ack = hs_crcgenerator(hs_payload_ack);
+hs_pad_len = 486 - length(hs_enc_ack);
+hs_payload_frame_ack = [hs_enc_ack; zeros(hs_pad_len, 1)];
+
+hs_scr_ack = scramble_bits_hs(hs_payload_frame_ack, hs_scr_seq);
+hs_enc_bits_ack = ldpcEncode(hs_scr_ack, hs_cfgLDPCEnc);
+hs_inter_matrix_ack = reshape(hs_enc_bits_ack, 36, 18).';
+hs_inter_bits_ack = hs_inter_matrix_ack(:);
+
+hs_inter_polar_ack = 2*hs_inter_bits_ack - 1;
+hs_spread_ack = zeros(length(hs_inter_polar_ack)*hs_sf, 1);
+for ii = 1:length(hs_inter_polar_ack)
+    hs_spread_ack((ii-1)*hs_sf+1 : ii*hs_sf) = hs_inter_polar_ack(ii) * hs_pn_fb;
+end
+hs_mod_ack = hs_qpskmod(0.5*(hs_spread_ack + 1));
+hs_tx_in_ack = [hs_head_fb; hs_mod_ack; zeros(hs_sps*10, 1)];
+hs_ack_wave_full = hs_txfilter(hs_tx_in_ack);
+hs_ack_wave_full = [zeros(2000, 1); hs_ack_wave_full];
+fprintf('[RX-HS] ACK waveform: %d samples (%.2f ms)\n', ...
+    length(hs_ack_wave_full), length(hs_ack_wave_full)/200e6*512*1000);
+
+%% Anchor / feedback frequencies (matching proven handshake)
+hs_anchor_freq = 2.5e9;
+hs_feedback_freq = 1.45e9;
+
 %% =========== Session Variables ===========
 session_id = 0;
 hop_seed = 0;
@@ -52,8 +111,8 @@ disp('[RX-HW] Initializing USRP...');
 
 radio_tx = comm.SDRuTransmitter('Platform', 'X310', 'IPAddress', '192.168.10.2');
 radio_tx.ChannelMapping = 1;
-radio_tx.CenterFrequency = defs.feedback_freq;
-radio_tx.Gain = 24;
+radio_tx.CenterFrequency = hs_feedback_freq;
+radio_tx.Gain = 30;
 radio_tx.MasterClockRate = 200e6;
 radio_tx.InterpolationFactor = 512;
 radio_tx.ClockSource = 'External';
@@ -66,8 +125,8 @@ radio_rx = comm.SDRuReceiver( ...
     'DecimationFactor', 512, ...
     'SamplesPerFrame', BUS_RX_SAMPLES);
 radio_rx.ClockSource = 'External';
-radio_rx.ChannelMapping = 2;
-radio_rx.CenterFrequency = defs.anchor_freq;
+radio_rx.ChannelMapping = 1;
+radio_rx.CenterFrequency = hs_anchor_freq;
 radio_rx.Gain = 30;  % OTA: increased for over-the-air
 
 cleanupObj = onCleanup(@() safe_release(radio_tx, radio_rx));
@@ -91,7 +150,7 @@ for idx = 1:100000
     switch state
         case STATE_WAIT_BEACON
             % Listen on anchor frequency for BEACON
-            radio_rx.CenterFrequency = defs.anchor_freq;
+            radio_rx.CenterFrequency = hs_anchor_freq;
             radio_rx.SamplesPerFrame = CONTROL_RX_SAMPLES;
 
             try
@@ -102,39 +161,52 @@ for idx = 1:100000
                 continue;
             end
 
-            % Try to decode BEACON/START control frame
+            % Try to decode BEACON using proven BPSK handshake decoder
             rx_diag_count = rx_diag_count + 1;
             if mod(rx_diag_count, 30) == 0
                 fprintf('[RX-DIAG] #%d | rms=%.4f | pk=%.4f\n', ...
                     rx_diag_count, rms(rx_sig), max(abs(rx_sig)));
             end
-            [ctrl_valid, ctrl_data] = decode_control_frame(rx_sig);
+            [ctrl_valid, ctrl_data] = decode_ctrl_hs(rx_sig, hs_rxfilter, hs_head_fb, ...
+                hs_pn_fb, hs_scr_seq, hs_cfgLDPCDec, hs_crcdetector, hs_qpskdemod, hs_sps, hs_sf);
 
-            if ctrl_valid && (ctrl_data.frame_type == 40 || ctrl_data.frame_type == 41)
-                % Got BEACON or direct START
+            if ctrl_valid && ctrl_data.frame_type == 100  % BEACON
+                session_id = ctrl_data.session_id;
+                fprintf('[RX] Got BEACON: session=%d\n', session_id);
+
+                % Send ACK using proven BPSK waveform (like handshake_rx.m)
+                tx_sig = hs_ack_wave_full;
+                radio_tx.CenterFrequency = hs_feedback_freq;
+
+                state = STATE_READY_SENT;
+                slot_ptr = 1;
+                ready_discovery_count = 0;
+            elseif ctrl_valid && ctrl_data.frame_type == 41  % START (direct, beacon skipped)
                 session_id = ctrl_data.session_id;
                 hop_seed = ctrl_data.hop_seed;
                 total_slots = ctrl_data.total_slots;
                 slot_len_samples = ctrl_data.slot_len;
                 codewords_per_slot = ctrl_data.codewords_per_slot;
 
-                fprintf('[RX] Got control frame: type=%d | session=%d | hop_seed=%d | slots=%d\n', ...
-                    ctrl_data.frame_type, session_id, hop_seed, total_slots);
+                fprintf('[RX] Got direct START: session=%d | hop_seed=%d | slots=%d\n', ...
+                    session_id, hop_seed, total_slots);
 
-                % Send RX_READY
-                fb_data = build_fb_data(defs.FRAME_TYPE_RX_READY, session_id, ...
-                    defs.RX_STATE_READY);
-                tx_sig = feedback_frame_modulate_v2(fb_data);
+                % Generate hop sequence, init cache
+                hop_seq = build_hop_sequence(hop_seed, total_slots, defs.num_carriers);
+                frame_cache = struct();
+                frame_cache = rx_frame_cache_update(frame_cache, [], session_id);
 
-                state = STATE_READY_SENT;
+                state = STATE_FOLLOW_HOP;
                 slot_ptr = 1;
-                ready_discovery_count = 0;
+                data_start_time = tic;
+                release(radio_rx);
+                radio_rx.SamplesPerFrame = BUS_RX_SAMPLES;
             else
-                % Send low-duty-cycle RX_READY_DISCOVERY
+                % Send low-duty-cycle RX_READY_DISCOVERY via BPSK
                 ready_discovery_count = ready_discovery_count + 1;
                 if mod(ready_discovery_count, 20) == 0
-                    fb_data = build_fb_data(defs.FRAME_TYPE_RX_READY, 0, defs.RX_STATE_WAIT);
-                    tx_sig = feedback_frame_modulate_v2(fb_data);
+                    tx_sig = hs_ack_wave_full;
+                    radio_tx.CenterFrequency = hs_feedback_freq;
                 end
             end
 
@@ -144,7 +216,7 @@ for idx = 1:100000
 
         case STATE_READY_SENT
             % Wait for START on anchor frequency
-            radio_rx.CenterFrequency = defs.anchor_freq;
+            radio_rx.CenterFrequency = hs_anchor_freq;
             release(radio_rx);
             radio_rx.SamplesPerFrame = CONTROL_RX_SAMPLES;
 
@@ -156,7 +228,8 @@ for idx = 1:100000
                 continue;
             end
 
-            [ctrl_valid, ctrl_data] = decode_control_frame(rx_sig);
+            [ctrl_valid, ctrl_data] = decode_ctrl_hs(rx_sig, hs_rxfilter, hs_head_fb, ...
+                hs_pn_fb, hs_scr_seq, hs_cfgLDPCDec, hs_crcdetector, hs_qpskdemod, hs_sps, hs_sf);
 
             if ctrl_valid && ctrl_data.frame_type == 41  % START
                 session_id = ctrl_data.session_id;
@@ -182,10 +255,10 @@ for idx = 1:100000
                 radio_rx.SamplesPerFrame = BUS_RX_SAMPLES;
             end
 
-            % Re-send RX_READY periodically
+            % Re-send ACK periodically (keep alive with TX)
             if mod(idx, 5) == 0
-                fb_data = build_fb_data(defs.FRAME_TYPE_RX_READY, session_id, defs.RX_STATE_READY);
-                tx_sig = feedback_frame_modulate_v2(fb_data);
+                tx_sig = hs_ack_wave_full;
+                radio_tx.CenterFrequency = hs_feedback_freq;
             end
 
             release(radio_rx);
@@ -228,12 +301,10 @@ for idx = 1:100000
                         slot_ptr, total_slots, defs.Carrier_set(carrier_idx)/1e9);
                 end
 
-                % Periodic telemetry
+                % Periodic keep-alive (ACK blip on feedback channel)
                 if mod(slot_ptr, TELEMETRY_PERIOD_LOOPS) == 0
-                    fb_data = build_fb_data(defs.FRAME_TYPE_RX_TELEMETRY, session_id, ...
-                        defs.RX_STATE_FOLLOW);
-                    fb_data = fill_telemetry(fb_data, phy_metrics, frame_cache);
-                    tx_sig = feedback_frame_modulate_v2(fb_data);
+                    tx_sig = hs_ack_wave_full;
+                    radio_tx.CenterFrequency = hs_feedback_freq;
                 end
 
                 slot_ptr = slot_ptr + 1;
@@ -261,21 +332,11 @@ for idx = 1:100000
             state = STATE_RESULT_REPORT;
 
         case STATE_RESULT_REPORT
-            % Send RESULT repeatedly
+            % Send RESULT repeatedly using BPSK ACK blip
+            tx_sig = hs_ack_wave_full;
+            radio_tx.CenterFrequency = hs_feedback_freq;
+
             metrics = compute_rx_metrics(phy_metrics, frame_cache, rebuild_info, toc(data_start_time));
-
-            fb_data = build_fb_data(defs.FRAME_TYPE_RX_RESULT, session_id, defs.RX_STATE_RESULT);
-            fb_data = fill_telemetry(fb_data, phy_metrics, frame_cache);
-            fb_data.result_code = metrics.result_code;
-            fb_data.rx_crc_ok_num = metrics.rx_crc_ok_num;
-            fb_data.rx_lost_num = metrics.rx_lost_num;
-            fb_data.fec_recovered_num = metrics.fec_recovered_num;
-            fb_data.pre_fec_per_q16 = round(metrics.pre_fec_per * 65535);
-            fb_data.post_fec_per_q16 = round(metrics.post_fec_per * 65535);
-            fb_data.goodput_kbps_q16 = round(metrics.goodput_kbps * 65535);
-
-            tx_sig = feedback_frame_modulate_v2(fb_data);
-
             fprintf('[RX-RESULT] %s\n', metrics.summary);
 
             if idx > 100  % Send for a while, then done
@@ -286,9 +347,11 @@ for idx = 1:100000
             tx_sig = zeros(FB_TX_SAMPLES, 1);
     end
 
-    % ---- Transmit feedback ----
+    % ---- Transmit feedback (skip if nothing to send) ----
     try
-        radio_tx(tx_sig);
+        if max(abs(tx_sig)) > 0
+            radio_tx(tx_sig);
+        end
     catch ME
         warning('[RX-ERR] FB TX error: %s', ME.message);
     end
@@ -316,39 +379,27 @@ release(radio_tx);
 fprintf('[RX] Receiver shutdown complete.\n');
 
 %% =========== Helper Functions ===========
-function [valid, ctrl_data] = decode_control_frame(rx_sig)
-% Decode a control frame (BEACON/START/END) from received signal
+function [valid, ctrl_data] = decode_ctrl_hs(rx_sig, rxfilter, head_fb, pn_fb, ...
+    scr_seq, cfgLDPCDec, crcdetector, qpskdemod, sps, sf)
+% Decode handshake control frame (BEACON/START/END) using proven BPSK+spreading
+% Handles both short format (BEACON/ACK: 40 info bits) and long format (START: 152 info bits)
 valid = false;
 ctrl_data = struct();
-
-defs = link_phy_defs();
-sps = 4;
 Threshold = 200;
+maxnumiter = 10;
 
-pcmatrix = ldpcQuasiCyclicMatrix(defs.blockSize, defs.P);
-cfgLDPCDec = ldpcDecoderConfig(pcmatrix);
-crcdetector = comm.CRCDetector(defs.poly);
+Rec_sig = rxfilter(complex(rx_sig(:)));
+data_frame_len = 648 * sf;  % BPSK+15x spreading → 9720
 
-demodulator = comm.PSKDemodulator(2, 'BitOutput', true, ...
-    'DecisionMethod', 'Approximate log-likelihood ratio');
-demodulator.PhaseOffset = pi/4;
-
-rxfilter = comm.RaisedCosineReceiveFilter( ...
-    'InputSamplesPerSymbol', sps, ...
-    'DecimationFactor', 1, ...
-    'RolloffFactor', 0.25);
-
-Rec_sig = rxfilter(rx_sig(:));
+PN_head = flip(head_fb);
 data_sys = [];
 buffer_h = [];
 index_val = zeros(1, sps);
 index_loc_h = cell(1, sps);
 
-data_frame_len = 648 * 15;  % BPSK+15x spreading
-
 for i = 1:sps
     data_sys(:, i) = Rec_sig(i:sps:end);
-    buffer_h(:, i) = abs(conv(flip(defs.head_data), sign(data_sys(:, i))));
+    buffer_h(:, i) = abs(conv(PN_head, sign(data_sys(:, i))));
     cand = pick_sync_peaks_ctrl(buffer_h(:, i), Threshold);
     if ~isempty(cand)
         index_loc_h{i} = cand(:);
@@ -358,7 +409,7 @@ for i = 1:sps
     end
 end
 
-	if all(index_val == 0), return; end
+if all(index_val == 0), return; end
 
 [~, op_index] = max(index_val);
 Rec_sig_afr_temp = data_sys(:, op_index);
@@ -367,71 +418,59 @@ idx_start = idx_start(idx_start + data_frame_len <= length(Rec_sig_afr_temp));
 
 if isempty(idx_start), return; end
 
-for j = 1:min(1, length(idx_start))  % Just decode first found
+for j = 1:min(1, length(idx_start))
     idx = idx_start(j);
     train_len = min(511, idx);
     receive_train = Rec_sig_afr_temp(idx-train_len+1:idx);
-    desire_seq = defs.head_data(end-train_len+1:end);
-    temp = conj(desire_seq) .* receive_train;
-    phase_est = -angle(mean(temp));
+    desire_seq = head_fb(end-train_len+1:end);
+    phase_est = -angle(mean(conj(desire_seq) .* receive_train));
 
     Rec_sig_afr = Rec_sig_afr_temp(idx+1:idx+data_frame_len) .* exp(1j*phase_est);
-    demod_signal = demodulator(Rec_sig_afr);
+    demod_signal = qpskdemod(Rec_sig_afr);
 
-    data_desp = zeros(length(demod_signal)/15, 1);
-    for ii = 1:length(demod_signal)/15
-        data_desp(ii) = sum(demod_signal((ii-1)*15+1:ii*15) .* defs.pn_data);
+    data_desp = zeros(length(demod_signal)/sf, 1);
+    for ii = 1:length(demod_signal)/sf
+        data_desp(ii) = sum(demod_signal((ii-1)*sf+1:ii*sf) .* pn_fb);
     end
 
     deinter_matrix = reshape(data_desp, 18, 36).';
     de_interleaved = deinter_matrix(:);
-    received_bits = ldpcDecode(de_interleaved, cfgLDPCDec, 10);
-    de_scr = descramble_bits_ctrl(received_bits, defs.scr_seq);
+    received_bits = ldpcDecode(de_interleaved, cfgLDPCDec, maxnumiter);
+    de_scr = descramble_bits_hs(received_bits, scr_seq);
 
-    [data_rec, err] = crcdetector(de_scr(1:end-length(defs.ctrl_frame_end)));
-    if err ~= 0, continue; end
+    % Try short format first (BEACON/ACK: 40 info bits + 32 CRC = 72 bits)
+    [data_rec, err] = crcdetector(de_scr(1:72));
+    if err == 0
+        offset = 0;
+        ctrl_data.frame_head = bits2int_hs(data_rec(offset+1:offset+8)); offset = offset+8;
+        ctrl_data.user_id    = bits2int_hs(data_rec(offset+1:offset+8)); offset = offset+8;
+        ctrl_data.frame_type = bits2int_hs(data_rec(offset+1:offset+8)); offset = offset+8;
+        ctrl_data.session_id = bits2int_hs(data_rec(offset+1:offset+16));
+        valid = true;
+        return;
+    end
 
-    % Parse control frame
-    offset = 0;
-    ctrl_data.frame_head = bits_to_int_ctrl(data_rec(offset+1:offset+8)); offset = offset+8;
-    ctrl_data.user_id    = bits_to_int_ctrl(data_rec(offset+1:offset+8)); offset = offset+8;
-    ctrl_data.frame_type = bits_to_int_ctrl(data_rec(offset+1:offset+8)); offset = offset+8;
-    ctrl_data.proto_ver  = bits_to_int_ctrl(data_rec(offset+1:offset+4)); offset = offset+4;
-    ctrl_data.header_len = bits_to_int_ctrl(data_rec(offset+1:offset+4)); offset = offset+4;
-    ctrl_data.session_id = bits_to_int_ctrl(data_rec(offset+1:offset+16)); offset = offset+16;
-    ctrl_data.hop_seed   = bits_to_int_ctrl(data_rec(offset+1:offset+32)); offset = offset+32;
-    ctrl_data.total_slots = bits_to_int_ctrl(data_rec(offset+1:offset+16)); offset = offset+16;
-    ctrl_data.slot_len   = bits_to_int_ctrl(data_rec(offset+1:offset+32)); offset = offset+32;
-    ctrl_data.codewords_per_slot = bits_to_int_ctrl(data_rec(offset+1:offset+16)); offset = offset+16;
-
-    valid = true;
-    return;
-end
-end
-
-function fb_data = build_fb_data(frame_type, session_id, rx_state)
-fb_data = struct();
-fb_data.frame_type = frame_type;
-fb_data.session_id = session_id;
-fb_data.rx_state = rx_state;
-end
-
-function fb_data = fill_telemetry(fb_data, phy_metrics, frame_cache)
-if ~isempty(phy_metrics)
-    fb_data.snr_q8 = round((phy_metrics.snr_est + 20) * 4);
-    fb_data.rssi_q8 = round(phy_metrics.rssi_dB * 4);
-    fb_data.sync_metric_q8 = round(min(phy_metrics.sync_peak / 100, 255));
-end
-if ~isempty(frame_cache) && isfield(frame_cache, 'total_frame_num')
-    fb_data.total_frame_num = frame_cache.total_frame_num;
-    fb_data.rx_crc_ok_num = sum(frame_cache.received_map);
-    fb_data.rx_lost_num = frame_cache.total_frame_num - fb_data.rx_crc_ok_num;
+    % Try long format (START: 152 info bits + 32 CRC = 184 bits)
+    [data_rec2, err2] = crcdetector(de_scr(1:184));
+    if err2 == 0
+        offset = 0;
+        ctrl_data.frame_head = bits2int_hs(data_rec2(offset+1:offset+8)); offset = offset+8;
+        ctrl_data.user_id    = bits2int_hs(data_rec2(offset+1:offset+8)); offset = offset+8;
+        ctrl_data.frame_type = bits2int_hs(data_rec2(offset+1:offset+8)); offset = offset+8;
+        ctrl_data.session_id = bits2int_hs(data_rec2(offset+1:offset+16)); offset = offset+16;
+        ctrl_data.hop_seed   = bits2int_hs(data_rec2(offset+1:offset+32)); offset = offset+32;
+        ctrl_data.total_slots = bits2int_hs(data_rec2(offset+1:offset+16)); offset = offset+16;
+        ctrl_data.slot_len   = bits2int_hs(data_rec2(offset+1:offset+32)); offset = offset+32;
+        ctrl_data.codewords_per_slot = bits2int_hs(data_rec2(offset+1:offset+16)); offset = offset+16;
+        ctrl_data.fec_k      = bits2int_hs(data_rec2(offset+1:offset+8)); offset = offset+8;
+        ctrl_data.fec_r      = bits2int_hs(data_rec2(offset+1:offset+8));
+        valid = true;
+        return;
+    end
 end
 end
 
-function v = bits_to_int_ctrl(bits)
-v = (2.^(length(bits)-1:-1:0)) * bits(:);
-end
+%% =========== Handshake Helper Functions ===========
 
 function cand = pick_sync_peaks_ctrl(metric, thr)
 raw_idx = find(metric >= thr);
@@ -451,7 +490,7 @@ while st <= length(raw_idx)
 end
 end
 
-function out = descramble_bits_ctrl(in, scr_seq)
+function out = scramble_bits_hs(in, scr_seq)
 out = zeros(size(in));
 grp = length(scr_seq);
 for ii = 1:floor(length(in)/grp)
@@ -459,6 +498,20 @@ for ii = 1:floor(length(in)/grp)
     ed = ii*grp;
     out(st:ed) = xor(in(st:ed), scr_seq);
 end
+end
+
+function out = descramble_bits_hs(in, scr_seq)
+out = zeros(size(in));
+grp = length(scr_seq);
+for ii = 1:floor(length(in)/grp)
+    st = (ii-1)*grp + 1;
+    ed = ii*grp;
+    out(st:ed) = xor(in(st:ed), scr_seq);
+end
+end
+
+function v = bits2int_hs(bits)
+v = (2.^(length(bits)-1:-1:0)) * bits(:);
 end
 
 function safe_release(tx, rx)
