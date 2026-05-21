@@ -36,8 +36,9 @@ FB_RX_SAMPLES = 80000;
 BUS_SLOT_SAMPLES = defs.slot_len_samples;
 CONTROL_SAMPLES = 40000;
 
-BEACON_PERIOD = 5;      % loops between beacons
-START_COUNTDOWN_SLOTS = 3;
+BEACON_PERIOD = 5;        % loops between beacons
+MIN_START_SENDS = 5;       % min START transmissions before accepting ACK
+MAX_START_ATTEMPTS = 50;   % timeout (~30s) before falling back to WAIT_READY
 END_REPEAT = 5;
 
 %% =========== Phase 1: INIT - File Processing ===========
@@ -238,7 +239,7 @@ tx_ui.timeout = 0.03;
 
 state = STATE_WAIT_READY;
 beacon_count = 0;
-countdown_remaining = 0;
+start_count = 0;
 end_count = 0;
 slot_ptr = 1;
 tx_duration = 0;
@@ -264,16 +265,16 @@ for idx = 1:100000
             beacon_count = beacon_count + 1;
 
         case STATE_START_COUNTDOWN
-            % Send TX_START using proven BPSK+spreading, carries hop_seed/slots/etc.
+            % Send START repeatedly until RX confirms via ACK
             tx_sig = hs_start_wave_full;
             radio_tx.CenterFrequency = hs_anchor_freq;
-            countdown_remaining = countdown_remaining - 1;
+            start_count = start_count + 1;
 
-            if countdown_remaining <= 0
-                state = STATE_DATA_ONCE;
-                slot_ptr = 1;
-                t0_data = tic;  % start data-phase timer
-                fprintf('[TX] 倒计时完成, 开始单次数据传输...\n');
+            % Timeout: fall back to WAIT_READY if no ACK after many attempts
+            if start_count > MAX_START_ATTEMPTS
+                fprintf('[TX] START超时(%d次), 退回等待就绪...\n', start_count);
+                state = STATE_WAIT_READY;
+                start_count = 0;
             end
 
         case STATE_DATA_ONCE
@@ -352,11 +353,17 @@ for idx = 1:100000
 
         % Handle ACK (frame_type == 101) from handshake
         % Require session_id match to avoid false trigger from RX discovery blips
-        if fb_data.frame_type == 101 && state == STATE_WAIT_READY ...
-                && fb_data.session_id == session_id
-            fprintf('[TX] 收到ACK, 开始倒计时...\n');
-            state = STATE_START_COUNTDOWN;
-            countdown_remaining = START_COUNTDOWN_SLOTS;
+        if fb_data.frame_type == 101 && fb_data.session_id == session_id
+            if state == STATE_WAIT_READY
+                fprintf('[TX] 收到ACK, 开始发送START...\n');
+                state = STATE_START_COUNTDOWN;
+                start_count = 0;
+            elseif state == STATE_START_COUNTDOWN && start_count >= MIN_START_SENDS
+                fprintf('[TX] RX已确认START(第%d次ACK), 开始数据传输...\n', start_count);
+                state = STATE_DATA_ONCE;
+                slot_ptr = 1;
+                t0_data = tic;
+            end
         end
 
         % Handle RX_RESULT (frame_type == 32)

@@ -107,6 +107,7 @@ late_join = 0;
 feedback_seq = 0;
 ready_discovery_count = 0;
 slot_ptr = 1;
+last_sync_time = 0;
 phy_metrics = [];  % store latest physical metrics
 
 %% =========== SDR Initialization ===========
@@ -226,8 +227,13 @@ for idx = 1:100000
                 frame_cache = struct();
                 frame_cache = rx_frame_cache_update(frame_cache, [], session_id);
 
+                % Send ACK to confirm START receipt
+                tx_sig = hs_ack_wave_full;
+                radio_tx.CenterFrequency = hs_feedback_freq;
+
                 state = STATE_FOLLOW_HOP;
                 slot_ptr = 1;
+                last_sync_time = tic;
                 data_start_time = tic;
                 % One-time switch to bus RX sample size for data phase
                 release(radio_rx);
@@ -274,8 +280,13 @@ for idx = 1:100000
                 fprintf('[RX] 收到START, 开始跳频跟随: 时隙=%d | 码字/时隙=%d\n', ...
                     total_slots, codewords_per_slot);
 
+                % Send ACK immediately to confirm START receipt
+                tx_sig = hs_ack_wave_full;
+                radio_tx.CenterFrequency = hs_feedback_freq;
+
                 state = STATE_FOLLOW_HOP;
                 slot_ptr = 1;
+                last_sync_time = tic;
                 data_start_time = tic;
                 % One-time switch to bus RX sample size for data phase
                 release(radio_rx);
@@ -303,7 +314,7 @@ for idx = 1:100000
                     if rx_overrun, warning('[RX-WARN] 时隙%d接收溢出', slot_ptr); end
                 catch ME
                     warning('[RX-ERR] 时隙%d硬件错误: %s', slot_ptr, ME.message);
-                    slot_ptr = slot_ptr + 1;
+                    pause(0.05);
                     continue;
                 end
 
@@ -319,10 +330,24 @@ for idx = 1:100000
                             slot_ptr, total_slots, defs.Carrier_set(carrier_idx)/1e9, ...
                             phy_metrics.snr_est, length(frame_packets), ...
                             sum(frame_cache.received_map), frame_cache.total_frame_num);
+                        last_sync_time = tic;  % reset timeout on successful receive
                     end
                 else
                     fprintf('[RX-DATA] 时隙 %d/%d | 频率=%.1f GHz | 无同步\n', ...
                         slot_ptr, total_slots, defs.Carrier_set(carrier_idx)/1e9);
+                end
+
+                % Only advance slot on successful sync (stay on same slot otherwise)
+                if phy_metrics.sync_success && ~isempty(frame_packets)
+                    slot_ptr = slot_ptr + 1;
+                end
+
+                % Timeout: if no data for 3 seconds, re-send ACK to re-sync with TX
+                if toc(last_sync_time) > 3.0
+                    fprintf('[RX] 3秒无数据, 重发ACK...\n');
+                    tx_sig = hs_ack_wave_full;
+                    radio_tx.CenterFrequency = hs_feedback_freq;
+                    last_sync_time = tic;  % reset timer after sending ACK
                 end
 
                 % Periodic keep-alive (ACK blip on feedback channel)
@@ -330,8 +355,6 @@ for idx = 1:100000
                     tx_sig = hs_ack_wave_full;
                     radio_tx.CenterFrequency = hs_feedback_freq;
                 end
-
-                slot_ptr = slot_ptr + 1;
 
             else
                 % All slots received
