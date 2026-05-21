@@ -19,17 +19,9 @@ Anti_Jamming_Mode = 0;    % 0=QPSK, 1=BPSK+spreading
 Power_gain = 30;   % OTA: increased for over-the-air
 Power = 1.0;
 
-% ---- Transmission Mode ----
-SKIP_HANDSHAKE = false;      % true=跳过握手直接传输
-SINGLE_FREQ_MODE = true;     % true=单频率传输(不跳频), false=跳频
-SINGLE_FREQ = 2.5e9;         % 单频率模式下的载波频率
-FIXED_HOP_SEED = 12345;      % 无握手模式下的固定跳频种子
-
-if SINGLE_FREQ_MODE
-    defs.Carrier_set = SINGLE_FREQ;
-    defs.num_carriers = 1;
-    fprintf('[TX] 单频率模式: %.1f GHz (不跳频)\n', SINGLE_FREQ/1e9);
-end
+% ---- Handshake Mode ----
+SKIP_HANDSHAKE = true;     % true=跳过握手直接跳频传输
+FIXED_HOP_SEED = 12345;    % 无握手模式下的固定跳频种子
 TX_START_DELAY = 3;        % 无握手模式下TX启动前等待秒数(给RX准备时间)
 
 fec_k = defs.fec_k_default;  % 24
