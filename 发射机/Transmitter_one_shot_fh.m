@@ -354,18 +354,19 @@ for idx = 1:100000
     end
 
     try
-        if use_bus_slot
+        if state == STATE_DATA_ONCE && ~freq_received
+            % Waiting for RX frequency ACK: send nothing, just listen
+            % (skip radio_tx to avoid transmitting silence on data frequencies)
+            pause(0.01);
+        elseif use_bus_slot
             % DATA_ONCE: radio_tx是非阻塞的, USRP实际发送一帧需~0.41s
             % 必须等USRP发完再发下一时隙，否则缓冲区溢出
             radio_tx(tx_sig);
             pause(0.35);
-        elseif state == STATE_WAIT_READY || state == STATE_START_COUNTDOWN || state == STATE_END_LISTEN || state == STATE_DATA_ONCE
-            % Handshake + DATA_ONCE-wait states: transmit only if real signal present
+        elseif state == STATE_WAIT_READY || state == STATE_START_COUNTDOWN || state == STATE_END_LISTEN
+            % Handshake states: TX actual signal directly (no padding), like proven handshake_tx.m
             if max(abs(tx_sig)) > 0
                 radio_tx(tx_sig);
-            end
-            if state == STATE_DATA_ONCE
-                pause(0.01);  % short pause when waiting for ACK
             end
         else
             % Other states: pad to bus slot size
