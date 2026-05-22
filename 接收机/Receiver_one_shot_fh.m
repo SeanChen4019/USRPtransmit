@@ -90,6 +90,7 @@ hs_ack_wave_full = hs_ready_wave_full;  % temporary, replaced on BEACON detect
 %% Anchor / feedback frequencies (matching proven handshake)
 hs_anchor_freq = 2.5e9;
 hs_feedback_freq = 1.45e9;
+data_freq = 2.5e9;  % single frequency for all data slots
 
 %% =========== Session Variables ===========
 session_id = 0;
@@ -333,26 +334,21 @@ for idx = 1:100000
             end
 
         case STATE_FOLLOW_HOP
-            % ACK-driven: tell TX which frequency to use, then listen
+            % Single-frequency: stay on data_freq, receive slots, ACK after each
             if slot_ptr <= total_slots
-                carrier_idx = hop_seq(slot_ptr);
-
-                % Send ACK with frequency instruction to TX
+                % Send ACK to tell TX we're ready for next slot
                 if need_send_ack
-                    tx_sig = build_ctrl_wave_hs(session_id, 101, hs_head_fb, ...
-                        hs_pn_fb, hs_scr_seq, hs_cfgLDPCEnc, hs_crcgenerator, ...
-                        hs_qpskmod, hs_txfilter, hs_sps, hs_sf, carrier_idx, slot_ptr);
+                    tx_sig = hs_ack_wave_full;
                     radio_tx.CenterFrequency = hs_feedback_freq;
                     need_send_ack = false;
                     if slot_ptr == 1 || mod(slot_ptr, 5) == 0
-                        fprintf('[RX-ACK] 指定TX频率=%.1f GHz (时隙=%d)\n', ...
-                            defs.Carrier_set(carrier_idx)/1e9, slot_ptr);
+                        fprintf('[RX-ACK] 确认时隙=%d, 等待数据...\n', slot_ptr);
                     end
                 end
 
-                % Tune to hop frequency and listen
-                radio_rx.CenterFrequency = defs.Carrier_set(carrier_idx);
-                pause(0.01);  % 10ms retune guard
+                % Listen on data frequency
+                radio_rx.CenterFrequency = data_freq;
+                pause(0.01);
 
                 try
                     [rx_sig, ~, rx_overrun] = radio_rx();
@@ -372,21 +368,21 @@ for idx = 1:100000
                     if ~isempty(frame_packets)
                         frame_cache = rx_frame_cache_update(frame_cache, frame_packets, session_id);
                         fprintf('[RX-DATA] 时隙 %d/%d | 频率=%.1f GHz | 信噪比=%.1f dB | 收到%d帧 | 缓存: %d/%d\n', ...
-                            slot_ptr, total_slots, defs.Carrier_set(carrier_idx)/1e9, ...
+                            slot_ptr, total_slots, data_freq/1e9, ...
                             phy_metrics.snr_est, length(frame_packets), ...
                             sum(frame_cache.received_map), frame_cache.total_frame_num);
                         slot_ptr = slot_ptr + 1;
-                        need_send_ack = true;  % request next frequency
+                        need_send_ack = true;
                         last_sync_time = tic;
                     end
                 else
                     fprintf('[RX-DATA] 时隙 %d/%d | 频率=%.1f GHz | 无同步\n', ...
-                        slot_ptr, total_slots, defs.Carrier_set(carrier_idx)/1e9);
+                        slot_ptr, total_slots, data_freq/1e9);
                 end
 
-                % Timeout: if no data for 3 seconds, re-request same frequency
+                % Timeout: if no data for 3 seconds, re-send ACK
                 if toc(last_sync_time) > 3.0
-                    fprintf('[RX] %.0f秒无数据, 重发频率指令...\n', toc(last_sync_time));
+                    fprintf('[RX] %.0f秒无数据, 重发ACK...\n', toc(last_sync_time));
                     need_send_ack = true;
                     last_sync_time = tic;
                 end

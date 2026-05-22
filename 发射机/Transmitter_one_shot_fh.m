@@ -248,9 +248,9 @@ start_count = 0;
 end_count = 0;
 slot_ptr = 1;
 tx_duration = 0;
-freq_received = false;
-pending_carrier = 0;
-last_freq_time = tic;
+data_freq = 2.5e9;  % single frequency for all data slots
+ack_go = false;
+last_ack_time = tic;
 
 %% =========== Synchronized Start ===========
 t_now = datetime('now');
@@ -299,27 +299,25 @@ for idx = 1:100000
             end
 
         case STATE_DATA_ONCE
-            % ACK-driven: wait for RX frequency instruction before each slot
+            % ACK-gated single-frequency: wait for RX ACK before each slot
             if slot_ptr <= total_slots
-                if freq_received
+                if ack_go
                     slot = slot_cache(slot_ptr);
                     tx_sig = slot.waveform;
-                    radio_tx.CenterFrequency = defs.Carrier_set(pending_carrier);
+                    radio_tx.CenterFrequency = data_freq;
                     use_bus_slot = true;
                     if slot_ptr == 1 || mod(slot_ptr, 5) == 0 || slot_ptr == total_slots
-                        fprintf('[TX-DATA] 时隙 %d/%d | 频率=%.1f GHz (RX指定) | 帧数=%d\n', ...
-                            slot_ptr, total_slots, ...
-                            defs.Carrier_set(pending_carrier)/1e9, ...
-                            slot.num_frames);
+                        fprintf('[TX-DATA] 时隙 %d/%d | 频率=%.1f GHz | 帧数=%d\n', ...
+                            slot_ptr, total_slots, data_freq/1e9, slot.num_frames);
                     end
                     slot_ptr = slot_ptr + 1;
-                    freq_received = false;
-                    last_freq_time = tic;
+                    ack_go = false;
+                    last_ack_time = tic;
                 else
                     tx_sig = zeros(CONTROL_SAMPLES, 1);
                     use_bus_slot = false;
-                    if toc(last_freq_time) > 10.0 && slot_ptr == 1
-                        fprintf('[TX-DATA] 等待RX频率指令超时(10s), 回退...\n');
+                    if toc(last_ack_time) > 10.0 && slot_ptr == 1
+                        fprintf('[TX-DATA] 等待ACK超时(10s), 回退...\n');
                         state = STATE_WAIT_READY;
                     end
                 end
@@ -354,9 +352,8 @@ for idx = 1:100000
     end
 
     try
-        if state == STATE_DATA_ONCE && ~freq_received
-            % Waiting for RX frequency ACK: send nothing, just listen
-            % (skip radio_tx to avoid transmitting silence on data frequencies)
+        if state == STATE_DATA_ONCE && ~ack_go
+            % Waiting for RX ACK: send nothing, just listen on feedback channel
             pause(0.01);
         elseif use_bus_slot
             % DATA_ONCE: radio_tx是非阻塞的, USRP实际发送一帧需~0.41s
@@ -403,14 +400,12 @@ for idx = 1:100000
                 state = STATE_DATA_ONCE;
                 slot_ptr = 1;
                 t0_data = tic;
-                freq_received = false;
-                last_freq_time = tic;
-            elseif state == STATE_DATA_ONCE && fb_data.next_carrier > 0
-                pending_carrier = fb_data.next_carrier;
-                freq_received = true;
-                last_freq_time = tic;
-                fprintf('[TX-FB] RX指定频率: %.1f GHz (时隙=%d)\n', ...
-                    defs.Carrier_set(pending_carrier)/1e9, fb_data.slot_ack);
+                ack_go = false;
+                last_ack_time = tic;
+            elseif state == STATE_DATA_ONCE
+                ack_go = true;
+                last_ack_time = tic;
+                fprintf('[TX-FB] RX确认, 准备发送时隙%d\n', slot_ptr);
             end
         end
 
