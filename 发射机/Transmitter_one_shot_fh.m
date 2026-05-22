@@ -1,11 +1,11 @@
-% =========== One-Shot Frequency Hopping Transmitter ===========
-% V2 Protocol: TX_BEACON -> RX_READY -> TX_START -> DATA_ONCE -> TX_END -> DONE
-% Business data sent exactly once, no retransmission.
+% =========== Stop-and-Wait ARQ Transmitter ===========
+% Protocol: DATA_ARQ -> END_LISTEN -> DONE
+% TX sends one slot, waits for ACK, retransmits on timeout.
 clear
 clc
 close all force
 warning('off', 'all');
-fprintf('\n========== 单次跳频发射机 ==========\n');
+fprintf('\n========== 停等ARQ发射机 ==========\n');
 
 %% =========== Configuration ===========
 defs = link_phy_defs();
@@ -25,20 +25,16 @@ fec_r = defs.fec_r_default;  % 8
 hop_seed = randi(65535);
 
 %% =========== State Machine Constants ===========
-STATE_INIT           = 0;
-STATE_WAIT_READY     = 1;
-STATE_START_COUNTDOWN = 2;
-STATE_DATA_ONCE      = 3;
-STATE_END_LISTEN     = 4;
-STATE_DONE           = 5;
+STATE_INIT       = 0;
+STATE_DATA_ARQ   = 1;  % Stop-and-Wait ARQ
+STATE_END_LISTEN = 2;
+STATE_DONE       = 3;
 
 FB_RX_SAMPLES = 80000;
 BUS_SLOT_SAMPLES = defs.slot_len_samples;
 CONTROL_SAMPLES = 40000;
 
-BEACON_PERIOD = 5;        % loops between beacons
-MIN_START_SENDS = 5;       % min START transmissions before accepting ACK
-MAX_START_ATTEMPTS = 50;   % timeout (~30s) before falling back to WAIT_READY
+ARQ_TIMEOUT = 3.0;  % seconds to wait for ACK before retransmit
 END_REPEAT = 5;
 
 %% =========== Phase 1: INIT - File Processing ===========
@@ -88,15 +84,10 @@ total_slots = fec_info.total_slots;
 session_id = fec_info.session_id;
 
 % Debug: print first 5 hop frequencies
-hop_freqs_str = '';
-for hi = 1:min(5, total_slots)
-    hop_freqs_str = [hop_freqs_str sprintf('%.1f ', defs.Carrier_set(fec_info.hop_seq(hi))/1e9)];
-end
-fprintf('[TX-INIT] 就绪: 会话=%d | 时隙=%d | 跳频(前5)=%s| hop_seed=%d\n', ...
-    session_id, total_slots, hop_freqs_str, meta_info.hop_seed);
+fprintf('[TX-INIT] 就绪: 会话=%d | 时隙=%d\n', session_id, total_slots);
 
-%% =========== BPSK Handshake PHY Setup (from proven handshake_tx.m) ===========
-fprintf('[TX-HS] 正在设置BPSK握手物理层...\n');
+%% =========== BPSK PHY Setup (for END frame and ACK decode) ===========
+fprintf('[TX-PHY] 正在设置BPSK物理层...\n');
 hs_sps = 4;
 hs_sf = 15;
 hs_M = 2;
@@ -121,70 +112,12 @@ hs_scr_seq = [1 1 0 1 1 0 1 0 0 1 0 0 0 0 1 0 1 0 1 1 1 0 1 1 0 0 0]';
 
 hs_Frame_head = [1;1;1;0;1;0;1;0];
 hs_Usr_ID = [0;0;0;0;0;1;0;1];
-hs_Frame_type_beacon = double(dec2bin(100, 8) == '1')';
-hs_Frame_type_start  = double(dec2bin(41, 8) == '1')';
 hs_Frame_type_end    = double(dec2bin(42, 8) == '1')';
 hs_Session_ID = double(dec2bin(session_id, 16) == '1')';
 
-%% Pre-build BEACON waveform (BPSK+spreading, same as proven handshake)
-fprintf('[TX-HS] 正在构建BEACON波形...\n');
-hs_payload_beacon = [hs_Frame_head; hs_Usr_ID; hs_Frame_type_beacon; hs_Session_ID];
-hs_enc_beacon = hs_crcgenerator(hs_payload_beacon);
-hs_pad_len = 486 - length(hs_enc_beacon);
-hs_payload_frame_beacon = [hs_enc_beacon; zeros(hs_pad_len, 1)];
-
-hs_scr_beacon = scramble_bits_hs(hs_payload_frame_beacon, hs_scr_seq);
-hs_enc_bits_beacon = ldpcEncode(hs_scr_beacon, hs_cfgLDPCEnc);
-hs_inter_matrix_beacon = reshape(hs_enc_bits_beacon, 36, 18).';
-hs_inter_bits_beacon = hs_inter_matrix_beacon(:);
-
-hs_inter_polar_beacon = 2*hs_inter_bits_beacon - 1;
-hs_spread_beacon = zeros(length(hs_inter_polar_beacon)*hs_sf, 1);
-for ii = 1:length(hs_inter_polar_beacon)
-    hs_spread_beacon((ii-1)*hs_sf+1 : ii*hs_sf) = hs_inter_polar_beacon(ii) * hs_pn_fb;
-end
-hs_mod_beacon = hs_qpskmod(0.5*(hs_spread_beacon + 1));
-hs_tx_in_beacon = [hs_head_fb; hs_mod_beacon; zeros(hs_sps*10, 1)];
-hs_beacon_wave_full = hs_txfilter(hs_tx_in_beacon);
-hs_beacon_wave_full = [zeros(2000, 1); hs_beacon_wave_full];
-fprintf('[TX-HS] BEACON波形: %d 采样点 (%.2f 毫秒)\n', ...
-    length(hs_beacon_wave_full), length(hs_beacon_wave_full)/200e6*512*1000);
-
-%% Pre-build START control waveform (carries hop_seed, total_slots, etc.)
-fprintf('[TX-HS] 正在构建START波形...\n');
-hs_start_info_bits = [ ...
-    int_to_bits_hs(meta_info.hop_seed, 32); ...
-    int_to_bits_hs(total_slots, 16); ...
-    int_to_bits_hs(meta_info.slot_len_samples, 32); ...
-    int_to_bits_hs(fec_info.codewords_per_slot, 16); ...
-    int_to_bits_hs(meta_info.fec_k, 8); ...
-    int_to_bits_hs(meta_info.fec_r, 8)];
-
-hs_payload_start = [hs_Frame_head; hs_Usr_ID; hs_Frame_type_start; hs_Session_ID; hs_start_info_bits];
-hs_enc_start = hs_crcgenerator(hs_payload_start);
-hs_pad_len_start = 486 - length(hs_enc_start);
-hs_payload_frame_start = [hs_enc_start; zeros(hs_pad_len_start, 1)];
-
-hs_scr_start = scramble_bits_hs(hs_payload_frame_start, hs_scr_seq);
-hs_enc_bits_start = ldpcEncode(hs_scr_start, hs_cfgLDPCEnc);
-hs_inter_matrix_start = reshape(hs_enc_bits_start, 36, 18).';
-hs_inter_bits_start = hs_inter_matrix_start(:);
-
-hs_inter_polar_start = 2*hs_inter_bits_start - 1;
-hs_spread_start = zeros(length(hs_inter_polar_start)*hs_sf, 1);
-for ii = 1:length(hs_inter_polar_start)
-    hs_spread_start((ii-1)*hs_sf+1 : ii*hs_sf) = hs_inter_polar_start(ii) * hs_pn_fb;
-end
-hs_mod_start = hs_qpskmod(0.5*(hs_spread_start + 1));
-hs_tx_in_start = [hs_head_fb; hs_mod_start; zeros(hs_sps*10, 1)];
-hs_start_wave_full = hs_txfilter(hs_tx_in_start);
-hs_start_wave_full = [zeros(2000, 1); hs_start_wave_full];
-fprintf('[TX-HS] START波形: %d 采样点 (%.2f 毫秒)\n', ...
-    length(hs_start_wave_full), length(hs_start_wave_full)/200e6*512*1000);
-
 %% Pre-build END waveform
 hs_payload_end = [hs_Frame_head; hs_Usr_ID; hs_Frame_type_end; hs_Session_ID; ...
-    zeros(112, 1)];  % same structure as START, padded with zeros
+    zeros(112, 1)];
 hs_enc_end = hs_crcgenerator(hs_payload_end);
 hs_pad_len_end = 486 - length(hs_enc_end);
 hs_payload_frame_end = [hs_enc_end; zeros(hs_pad_len_end, 1)];
@@ -242,20 +175,19 @@ tx_ui.post_period = 10;
 tx_ui.ctrl_period = 20;
 tx_ui.timeout = 0.03;
 
-state = STATE_WAIT_READY;
-beacon_count = 0;
-start_count = 0;
+state = STATE_DATA_ARQ;
 end_count = 0;
 slot_ptr = 1;
 tx_duration = 0;
-data_freq = 2.5e9;  % single frequency for all data slots
-ack_go = false;
-last_ack_time = tic;
+data_freq = 2.5e9;
+feedback_freq = 1.45e9;
+waiting_for_ack = false;
+ack_timeout = tic;
 
 %% =========== Synchronized Start ===========
 t_now = datetime('now');
 sec_current = second(t_now);
-sec_target = ceil(sec_current / 5) * 5;  % next 5-second boundary
+sec_target = ceil(sec_current / 5) * 5;
 if sec_target - sec_current < 1
     sec_target = sec_target + 5;
 end
@@ -265,7 +197,7 @@ fprintf('[SYNC] 预定开始: %s (%.1f秒后)\n', ...
     datestr(t_now + seconds(wait_secs), 'HH:MM:SS'), wait_secs);
 fprintf('[SYNC] 等待中... 请确保RX也在同步等待\n');
 pause(wait_secs);
-fprintf('[SYNC] 开始! 进入等待就绪状态, 在%.2f GHz发送BEACON\n', hs_anchor_freq/1e9);
+fprintf('[SYNC] 开始! 停等ARQ模式, 数据频率=%.1f GHz\n', data_freq/1e9);
 
 %% =========== Main Loop ===========
 for idx = 1:100000
@@ -273,66 +205,43 @@ for idx = 1:100000
     fb_sig = zeros(FB_RX_SAMPLES, 1);
     use_bus_slot = false;
 
-    % ---- State Machine ----
+    % ---- State Machine (Stop-and-Wait ARQ) ----
     switch state
-        case STATE_WAIT_READY
-            % Periodic BEACON using proven BPSK+spreading handshake
-            if mod(beacon_count, BEACON_PERIOD) == 0
-                tx_sig = hs_beacon_wave_full;
-                radio_tx.CenterFrequency = hs_anchor_freq;
-            else
-                tx_sig = zeros(CONTROL_SAMPLES, 1);
-            end
-            beacon_count = beacon_count + 1;
-
-        case STATE_START_COUNTDOWN
-            % Send START repeatedly until RX confirms via ACK
-            tx_sig = hs_start_wave_full;
-            radio_tx.CenterFrequency = hs_anchor_freq;
-            start_count = start_count + 1;
-
-            % Timeout: fall back to WAIT_READY if no ACK after many attempts
-            if start_count > MAX_START_ATTEMPTS
-                fprintf('[TX] START超时(%d次), 退回等待就绪...\n', start_count);
-                state = STATE_WAIT_READY;
-                start_count = 0;
-            end
-
-        case STATE_DATA_ONCE
-            % ACK-gated single-frequency: wait for RX ACK before each slot
+        case STATE_DATA_ARQ
             if slot_ptr <= total_slots
-                if ack_go
+                if ~waiting_for_ack
+                    % Send current slot
                     slot = slot_cache(slot_ptr);
                     tx_sig = slot.waveform;
                     radio_tx.CenterFrequency = data_freq;
                     use_bus_slot = true;
-                    if slot_ptr == 1 || mod(slot_ptr, 5) == 0 || slot_ptr == total_slots
-                        fprintf('[TX-DATA] 时隙 %d/%d | 频率=%.1f GHz | 帧数=%d\n', ...
-                            slot_ptr, total_slots, data_freq/1e9, slot.num_frames);
+                    fprintf('[TX-ARQ] 发送时隙 %d/%d | 频率=%.1f GHz | 帧数=%d\n', ...
+                        slot_ptr, total_slots, data_freq/1e9, slot.num_frames);
+                    waiting_for_ack = true;
+                    ack_timeout = tic;
+                    if slot_ptr == 1
+                        t0_data = tic;  % start timing on first slot
                     end
-                    slot_ptr = slot_ptr + 1;
-                    ack_go = false;
-                    last_ack_time = tic;
+                elseif toc(ack_timeout) > ARQ_TIMEOUT
+                    % Timeout: retransmit same slot
+                    fprintf('[TX-ARQ] 超时(%.1fs), 重传时隙 %d/%d\n', ARQ_TIMEOUT, slot_ptr, total_slots);
+                    waiting_for_ack = false;  % will retransmit next iteration
                 else
+                    % Waiting for ACK on feedback channel
                     tx_sig = zeros(CONTROL_SAMPLES, 1);
                     use_bus_slot = false;
-                    if toc(last_ack_time) > 10.0 && slot_ptr == 1
-                        fprintf('[TX-DATA] 等待ACK超时(10s), 回退...\n');
-                        state = STATE_WAIT_READY;
-                    end
                 end
             else
                 slot_dur = BUS_SLOT_SAMPLES / (200e6/512);
                 pause(slot_dur);
                 tx_duration = toc(t0_data);
-                fprintf('[TX-DATA] 所有时隙已发送, 耗时=%.2f 秒\n', tx_duration);
+                fprintf('[TX-ARQ] 所有时隙已发送, 耗时=%.2f 秒\n', tx_duration);
                 state = STATE_END_LISTEN;
             end
 
         case STATE_END_LISTEN
-            % Send TX_END using proven BPSK+spreading, listen for RESULT
             tx_sig = hs_end_wave_full;
-            radio_tx.CenterFrequency = hs_anchor_freq;
+            radio_tx.CenterFrequency = data_freq;
             end_count = end_count + 1;
             if end_count > 30
                 fprintf('[TX] END已发送%d次, 未收到RESULT, 结束.\n', end_count);
@@ -352,16 +261,15 @@ for idx = 1:100000
     end
 
     try
-        if state == STATE_DATA_ONCE && ~ack_go
-            % Waiting for RX ACK: send nothing, just listen on feedback channel
+        if state == STATE_DATA_ARQ && waiting_for_ack
+            % Waiting for ACK: no transmit, just listen on feedback channel
             pause(0.01);
         elseif use_bus_slot
-            % DATA_ONCE: radio_tx是非阻塞的, USRP实际发送一帧需~0.41s
-            % 必须等USRP发完再发下一时隙，否则缓冲区溢出
+            % Data slot or END frame: transmit with buffer guard
             radio_tx(tx_sig);
             pause(0.35);
-        elseif state == STATE_WAIT_READY || state == STATE_START_COUNTDOWN || state == STATE_END_LISTEN
-            % Handshake states: TX actual signal directly (no padding), like proven handshake_tx.m
+        elseif state == STATE_END_LISTEN
+            % END frame
             if max(abs(tx_sig)) > 0
                 radio_tx(tx_sig);
             end
@@ -385,28 +293,11 @@ for idx = 1:100000
         hs_scr_seq, hs_cfgLDPCDec, hs_crcdetector, hs_qpskdemod, hs_sps, hs_sf);
 
     if fb_valid
-        fprintf('[TX-FB] 收到ACK: 类型=%d | 会话=%d\n', ...
-            fb_data.frame_type, fb_data.session_id);
-
-        % Handle ACK (frame_type == 101) from handshake
-        % Require session_id match to avoid false trigger from RX discovery blips
-        if fb_data.frame_type == 101 && fb_data.session_id == session_id
-            if state == STATE_WAIT_READY
-                fprintf('[TX] 收到ACK, 开始发送START...\n');
-                state = STATE_START_COUNTDOWN;
-                start_count = 0;
-            elseif state == STATE_START_COUNTDOWN && start_count >= MIN_START_SENDS
-                fprintf('[TX] RX已确认START(第%d次ACK), 开始数据传输...\n', start_count);
-                state = STATE_DATA_ONCE;
-                slot_ptr = 1;
-                t0_data = tic;
-                ack_go = false;
-                last_ack_time = tic;
-            elseif state == STATE_DATA_ONCE
-                ack_go = true;
-                last_ack_time = tic;
-                fprintf('[TX-FB] RX确认时隙%d, 准备发送时隙%d\n', fb_data.slot_ack, slot_ptr);
-            end
+        % Handle ACK (frame_type == 101) - slot_ack tells which slot was received
+        if fb_data.frame_type == 101 && state == STATE_DATA_ARQ
+            slot_ptr = slot_ptr + 1;
+            waiting_for_ack = false;
+            fprintf('[TX-FB] RX确认时隙%d, 准备发送时隙%d\n', fb_data.slot_ack, slot_ptr);
         end
 
         % Handle RX_RESULT (frame_type == 32)
@@ -418,9 +309,9 @@ for idx = 1:100000
 
     % ---- Periodic Status ----
     if mod(idx, 10) == 0
-        state_names = {'INIT', 'WAIT_READY', 'START_COUNTDOWN', 'DATA_ONCE', 'END_LISTEN', 'DONE'};
-        fprintf('[TX] 循环=%d | 状态=%s | 时隙=%d/%d\n', ...
-            idx, state_names{state+1}, min(slot_ptr, total_slots), total_slots);
+        state_names = {'INIT', 'DATA_ARQ', 'END_LISTEN', 'DONE'};
+        fprintf('[TX] 循环=%d | 状态=%s | 时隙=%d/%d | 等待ACK=%d\n', ...
+            idx, state_names{state+1}, min(slot_ptr, total_slots), total_slots, waiting_for_ack);
     end
 
     % ---- Exit Conditions ----
