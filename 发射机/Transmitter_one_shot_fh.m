@@ -405,7 +405,7 @@ for idx = 1:100000
             elseif state == STATE_DATA_ONCE
                 ack_go = true;
                 last_ack_time = tic;
-                fprintf('[TX-FB] RX确认, 准备发送时隙%d\n', slot_ptr);
+                fprintf('[TX-FB] RX确认时隙%d, 准备发送时隙%d\n', fb_data.slot_ack, slot_ptr);
             end
         end
 

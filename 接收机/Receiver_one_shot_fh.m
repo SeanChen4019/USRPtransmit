@@ -336,14 +336,15 @@ for idx = 1:100000
         case STATE_FOLLOW_HOP
             % Single-frequency: stay on data_freq, receive slots, ACK after each
             if slot_ptr <= total_slots
-                % Send ACK to tell TX we're ready for next slot
+                % Send ACK with slot number to TX
                 if need_send_ack
-                    tx_sig = hs_ack_wave_full;
+                    ack_slot = max(0, slot_ptr - 1);  % slot just received (0=none yet)
+                    tx_sig = build_ctrl_wave_hs(session_id, 101, hs_head_fb, ...
+                        hs_pn_fb, hs_scr_seq, hs_cfgLDPCEnc, hs_crcgenerator, ...
+                        hs_qpskmod, hs_txfilter, hs_sps, hs_sf, 0, ack_slot);
                     radio_tx.CenterFrequency = hs_feedback_freq;
                     need_send_ack = false;
-                    if slot_ptr == 1 || mod(slot_ptr, 5) == 0
-                        fprintf('[RX-ACK] 确认时隙=%d, 等待数据...\n', slot_ptr);
-                    end
+                    fprintf('[RX-ACK] 确认时隙=%d | 进度=%d/%d\n', ack_slot, max(0, slot_ptr - 1), total_slots);
                 end
 
                 % Listen on data frequency
@@ -627,7 +628,7 @@ hs_Usr_ID = [0;0;0;0;0;1;0;1];
 session_bits = double(dec2bin(session_id, 16) == '1')';
 frame_type_bits = double(dec2bin(frame_type, 8) == '1')';
 
-use_long = (nargin >= 14) && ~isempty(next_carrier) && next_carrier > 0;
+use_long = (nargin >= 14);  % long format when slot_ack is provided
 if use_long
     carrier_bits = double(dec2bin(next_carrier, 8) == '1')';
     slot_ack_bits = double(dec2bin(slot_ack, 16) == '1')';
