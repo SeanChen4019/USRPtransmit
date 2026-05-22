@@ -166,8 +166,8 @@ for idx = 1:100000
                 continue;
             end
 
-            % Detect and decode data slot (force complex to prevent filter lock error)
-            [detections, phy_metrics] = detect_hop_slot(complex(rx_sig), Anti_Jamming_Mode, Threshold, data_rxfilter);
+            % Detect and decode data slot (+0i forces complex to prevent filter lock)
+            [detections, phy_metrics] = detect_hop_slot(rx_sig + 0i, Anti_Jamming_Mode, Threshold, data_rxfilter);
 
             if phy_metrics.sync_success
                 [frame_packets, ~] = decode_forward_codewords_v2(rx_sig, detections, Anti_Jamming_Mode, rx_sig);
